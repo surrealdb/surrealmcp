@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
+use metrics::{counter, gauge, histogram};
 use rmcp::{
     Error as McpError, RoleServer, ServerHandler,
     model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
@@ -9,11 +10,61 @@ use rmcp::{
 use std::env;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 use surrealdb::opt::auth::Root;
 use surrealdb::{Surreal, engine::any, engine::any::Any};
 use tokio::fs;
 use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::Mutex;
+use tracing::{debug, error, info, instrument, warn};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+
+// Global metrics
+static ACTIVE_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
+static TOTAL_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
+static QUERY_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Initialize structured logging and metrics collection
+fn init_logging_and_metrics() {
+    // Set up environment filter for log levels
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("surrealmcp=trace,rmcp=warn"));
+
+    // Create file appender for logs
+    let file_appender = tracing_appender::rolling::daily("logs", "surrealmcp.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    // Initialize tracing subscriber with console and file output
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer().with_target(true))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_target(true)
+                .with_writer(non_blocking),
+        )
+        .init();
+    // Output debugging information
+    info!("Logging and tracing initialized");
+    // Initialize metrics with default values
+    gauge!("surrealmcp.active_connections", 0.0);
+    counter!("surrealmcp.total_connections", 0);
+    counter!("surrealmcp.total_queries", 0);
+    // Output debugging information
+    info!("Metrics collection initialized");
+}
+
+/// Generate a unique connection ID
+fn generate_connection_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let random = rand::random::<u32>();
+    format!("conn_{:x}_{:x}", timestamp, random)
+}
 
 #[derive(Parser)]
 #[command(name = "surrealmcp")]
@@ -55,6 +106,7 @@ enum Commands {
 }
 
 /// Create a new SurrealDB connection for a client
+#[instrument(skip(username, password, namespace, database), fields(url = %url))]
 async fn create_client_connection(
     url: &str,
     username: Option<&str>,
@@ -62,19 +114,28 @@ async fn create_client_connection(
     namespace: Option<&str>,
     database: Option<&str>,
 ) -> Result<Surreal<Any>, anyhow::Error> {
+    // Output debugging information
+    debug!("Attempting to connect to SurrealDB");
     // Connect to SurrealDB using the Any engine
     let instance = any::connect(url)
         .await
         .map_err(|e| anyhow!(e.to_string()))?;
-    // Attempt to authenticate if remote
+    // Output debugging information
+    debug!("Successfully connected to SurrealDB instance");
+    // Attempt to authenticate if specified
     if let (Some(username), Some(password)) = (username, password) {
+        debug!("Attempting authentication with username: {}", username);
         instance
             .signin(Root { username, password })
             .await
             .map_err(|e| anyhow!(e.to_string()))?;
+        debug!("Authentication successful");
+    } else {
+        debug!("No authentication credentials provided");
     }
     // Set namespace if provided
     if let Some(ns) = namespace {
+        debug!("Setting namespace: {}", ns);
         instance
             .use_ns(ns)
             .await
@@ -82,11 +143,14 @@ async fn create_client_connection(
     }
     // Set database if provided
     if let Some(db) = database {
+        debug!("Setting database: {}", db);
         instance
             .use_db(db)
             .await
             .map_err(|e| anyhow!(e.to_string()))?;
     }
+    // Output debugging information
+    debug!("Successfully established SurrealDB connection");
     // Return the instance
     Ok(instance)
 }
@@ -95,6 +159,8 @@ async fn create_client_connection(
 struct SurrealService {
     /// The SurrealDB client instance to use for database operations
     db: Arc<Mutex<Option<Surreal<Any>>>>,
+    /// Connection ID for tracking this client session
+    connection_id: String,
     /// The configured SurrealDB endpoint URL (optionally set at server startup)
     endpoint: Option<String>,
     /// The configured SurrealDB namespace (optionally set at server startup)
@@ -105,6 +171,8 @@ struct SurrealService {
     user: Option<String>,
     /// The configured SurrealDB password (optionally set at server startup)
     pass: Option<String>,
+    /// Timestamp when this connection was established
+    connected_at: std::time::Instant,
 }
 
 #[tool(tool_box)]
@@ -117,16 +185,21 @@ impl SurrealService {
     /// perform database operations.
     ///
     /// # Arguments
-    /// * `db` - The SurrealDB client instance to use for database operations
+    /// * `connection_id` - Connection ID for tracking this session
     #[allow(dead_code)]
-    pub fn new() -> Self {
+    pub fn new(connection_id: String) -> Self {
+        // Output debugging information
+        info!(connection_id = %connection_id, "Creating new client session");
+        // Create a new service instance
         Self {
             db: Arc::new(Mutex::new(None)),
+            connection_id,
             endpoint: None,
             namespace: None,
             database: None,
             user: None,
             pass: None,
+            connected_at: Instant::now(),
         }
     }
 
@@ -137,25 +210,38 @@ impl SurrealService {
     /// can be used during the session.
     ///
     /// # Arguments
+    /// * `connection_id` - Connection ID for tracking this session
     /// * `endpoint` - The SurrealDB endpoint URL (optional)
     /// * `namespace` - The namespace to use (optional)
     /// * `database` - The database to use (optional)
     /// * `user` - Username for authentication (optional)
     /// * `pass` - Password for authentication (optional)
     pub fn with_config(
+        connection_id: String,
         endpoint: Option<String>,
         namespace: Option<String>,
         database: Option<String>,
         user: Option<String>,
         pass: Option<String>,
     ) -> Self {
+        // Output debugging information
+        info!(
+            connection_id = %connection_id,
+            endpoint = endpoint.as_deref(),
+            namespace = namespace.as_deref(),
+            database = database.as_deref(),
+            "Creating new client session with config"
+        );
+        // Create a new service instance
         Self {
             db: Arc::new(Mutex::new(None)),
+            connection_id,
             endpoint,
             namespace,
             database,
             user,
             pass,
+            connected_at: Instant::now(),
         }
     }
 
@@ -186,20 +272,77 @@ Examples:
 - RELATE person:john->knows->person:jane
 "#)]
     async fn query(&self, #[tool(param)] query_string: String) -> Result<CallToolResult, McpError> {
+        let start_time = Instant::now();
+        let query_id = QUERY_COUNTER.fetch_add(1, Ordering::SeqCst);
+        // Output debugging information
+        debug!(
+            connection_id = %self.connection_id,
+            query_id,
+            query = %query_string,
+            "Executing SurrealQL query"
+        );
+        // Lock the database connection
         let db_guard = self.db.lock().await;
-
+        // Match the database connection
         match &*db_guard {
-            Some(db) => match db.query(query_string).await {
-                Ok(res) => {
-                    let text = format!("{res:?}");
-                    Ok(CallToolResult::success(vec![Content::text(text)]))
+            Some(db) => {
+                match db.query(&query_string).await {
+                    Ok(res) => {
+                        // Get the duration of the query
+                        let duration = start_time.elapsed();
+                        let text = format!("{res:?}");
+                        // Output debugging information
+                        info!(
+                            connection_id = %self.connection_id,
+                            query_id,
+                            query = %query_string,
+                            duration_ms = duration.as_millis(),
+                            result_length = text.len(),
+                            "Query execution succeeded"
+                        );
+                        // Update the total queries metric
+                        counter!("surrealmcp.total_queries", 1);
+                        histogram!("surrealmcp.query_duration_ms", duration.as_millis() as f64);
+                        // Return success message
+                        Ok(CallToolResult::success(vec![Content::text(text)]))
+                    }
+                    Err(e) => {
+                        // Get the duration of the query
+                        let duration = start_time.elapsed();
+                        // Output debugging information
+                        error!(
+                            connection_id = %self.connection_id,
+                            query_id,
+                            query = %query_string,
+                            duration_ms = duration.as_millis(),
+                            error = %e,
+                            "Query execution failed"
+                        );
+                        // Update the query errors metric
+                        counter!("surrealmcp.query_errors", 1);
+                        histogram!("surrealmcp.query_duration_ms", duration.as_millis() as f64);
+                        // Return error message
+                        Err(McpError::internal_error(e.to_string(), None))
+                    }
                 }
-                Err(e) => Err(McpError::internal_error(e.to_string(), None)),
-            },
-            None => Err(McpError::internal_error(
-                "Not connected to any SurrealDB endpoint. Use connect_endpoint first.".to_string(),
-                None,
-            )),
+            }
+            None => {
+                // Output debugging information
+                warn!(
+                    connection_id = %self.connection_id,
+                    query_id,
+                    query = %query_string,
+                    "Query attempted without database connection"
+                );
+                // Update the query errors metric
+                counter!("surrealmcp.query_errors", 1);
+                // Return error message
+                Err(McpError::internal_error(
+                    "Not connected to any SurrealDB endpoint. Use connect_endpoint first."
+                        .to_string(),
+                    None,
+                ))
+            }
         }
     }
 
@@ -264,22 +407,9 @@ Example:
 "#)]
         data: serde_json::Value,
     ) -> Result<CallToolResult, McpError> {
+        debug!("Creating record in table: {table}");
         let query = format!("CREATE {table} CONTENT {data}");
-        let db_guard = self.db.lock().await;
-
-        match &*db_guard {
-            Some(db) => match db.query(query).await {
-                Ok(res) => {
-                    let text = format!("{res:?}");
-                    Ok(CallToolResult::success(vec![Content::text(text)]))
-                }
-                Err(e) => Err(McpError::internal_error(e.to_string(), None)),
-            },
-            None => Err(McpError::internal_error(
-                "Not connected to any SurrealDB endpoint. Use connect_endpoint first.".to_string(),
-                None,
-            )),
-        }
+        self.query(query).await
     }
 
     /// Execute a SurrealDB SELECT statement to retrieve records from the database.
@@ -329,7 +459,8 @@ Examples:
 "#)]
         thing: String,
     ) -> Result<CallToolResult, McpError> {
-        let query = format!("SELECT {thing}");
+        debug!("Selecting records: {thing}");
+        let query = format!("SELECT * FROM{thing}");
         self.query(query).await
     }
 
@@ -410,6 +541,7 @@ Choose based on your needs:
         update_mode: Option<String>,
     ) -> Result<CallToolResult, McpError> {
         let mode = update_mode.as_deref().unwrap_or("replace");
+        debug!("Updating records: {thing}");
         let query = match mode {
             "merge" => format!("UPDATE {thing} MERGE {data}"),
             "patch" => format!("UPDATE {thing} PATCH {data}"),
@@ -463,6 +595,7 @@ Examples:
 "#)]
         thing: String,
     ) -> Result<CallToolResult, McpError> {
+        debug!("Deleting records: {thing}");
         let query = format!("DELETE {thing}");
         self.query(query).await
     }
@@ -550,6 +683,10 @@ Examples:
 "#)]
         content: Option<serde_json::Value>,
     ) -> Result<CallToolResult, McpError> {
+        debug!(
+            "Creating relationship: {} -> {} -> {}",
+            from_id, relationship_type, to_id
+        );
         let query = match content {
             Some(content_data) => {
                 format!("RELATE {from_id}->{relationship_type}->{to_id} CONTENT {content_data}")
@@ -560,37 +697,40 @@ Examples:
         self.query(query).await
     }
 
-    #[tool(description = "List Surreal Cloud instances (placeholder)")]
+    #[tool(description = "List Surreal Cloud instances")]
     async fn list_cloud_instances(&self) -> Result<CallToolResult, McpError> {
-        Ok(CallToolResult::success(vec![Content::text(
-            "cloud list not implemented".to_string(),
-        )]))
+        debug!("Listing cloud instances");
+        let msg = format!("list_cloud_instances not implemented");
+        Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
 
-    #[tool(description = "Pause Surreal Cloud instance (placeholder)")]
+    #[tool(description = "Pause Surreal Cloud instance")]
     async fn pause_cloud_instance(
         &self,
         #[tool(param)] instance_id: String,
     ) -> Result<CallToolResult, McpError> {
-        let msg = format!("pause {instance_id} not implemented");
+        debug!("Pausing cloud instance: {instance_id}");
+        let msg = format!("pause_cloud_instance not implemented");
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
 
-    #[tool(description = "Resume Surreal Cloud instance (placeholder)")]
+    #[tool(description = "Resume Surreal Cloud instance")]
     async fn resume_cloud_instance(
         &self,
         #[tool(param)] instance_id: String,
     ) -> Result<CallToolResult, McpError> {
-        let msg = format!("resume {instance_id} not implemented");
+        debug!("Resuming cloud instance: {instance_id}");
+        let msg = format!("resume_cloud_instance not implemented");
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
 
-    #[tool(description = "Create Surreal Cloud instance (placeholder)")]
+    #[tool(description = "Create Surreal Cloud instance")]
     async fn create_cloud_instance(
         &self,
         #[tool(param)] name: String,
     ) -> Result<CallToolResult, McpError> {
-        let msg = format!("create instance '{name}' not implemented");
+        debug!("Creating cloud instance: {name}");
+        let msg = format!("create_cloud_instance not implemented");
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
 
@@ -678,9 +818,27 @@ Examples: 'password', 'secret123', 'admin_pass'
 "#)]
         password: Option<String>,
     ) -> Result<CallToolResult, McpError> {
+        let start_time = Instant::now();
+        // Output debugging information
+        info!(
+            connection_id = %self.connection_id,
+            endpoint = %endpoint,
+            namespace = namespace.as_deref(),
+            database = database.as_deref(),
+            has_username = username.is_some(),
+            "Attempting to connect to SurrealDB endpoint"
+        );
         // Check if endpoint is restricted by startup configuration
         if let Some(configured_endpoint) = &self.endpoint {
             if endpoint != *configured_endpoint {
+                // Output debugging information
+                warn!(
+                    connection_id = %self.connection_id,
+                    requested_endpoint = %endpoint,
+                    configured_endpoint = %configured_endpoint,
+                    "Connection rejected: endpoint not allowed by server configuration"
+                );
+                // Return error message
                 return Err(McpError::internal_error(
                     format!(
                         "Cannot connect to endpoint '{endpoint}'. Server is configured to only use endpoint '{configured_endpoint}'"
@@ -693,6 +851,14 @@ Examples: 'password', 'secret123', 'admin_pass'
         if let Some(configured_namespace) = &self.namespace {
             if let Some(namespace) = &namespace {
                 if namespace != configured_namespace {
+                    // Output debugging information
+                    warn!(
+                        connection_id = %self.connection_id,
+                        requested_namespace = %namespace,
+                        configured_namespace = %configured_namespace,
+                        "Connection rejected: namespace not allowed by server configuration"
+                    );
+                    // Return error message
                     return Err(McpError::internal_error(
                         format!(
                             "Cannot use namespace '{namespace}'. Server is configured to only use namespace '{configured_namespace}'"
@@ -706,6 +872,14 @@ Examples: 'password', 'secret123', 'admin_pass'
         if let Some(configured_database) = &self.database {
             if let Some(database) = &database {
                 if database != configured_database {
+                    // Output debugging information
+                    warn!(
+                        connection_id = %self.connection_id,
+                        requested_database = %database,
+                        configured_database = %configured_database,
+                        "Connection rejected: database not allowed by server configuration"
+                    );
+                    // Return error message
                     return Err(McpError::internal_error(
                         format!(
                             "Cannot use database '{database}'. Server is configured to only use database '{configured_database}'"
@@ -734,17 +908,43 @@ Examples: 'password', 'secret123', 'admin_pass'
         .await
         {
             Ok(instance) => {
+                let duration = start_time.elapsed();
                 // Update the service's database connection
                 let mut db_guard = self.db.lock().await;
                 *db_guard = Some(instance);
-
+                // Output debugging information
+                info!(
+                    connection_id = %self.connection_id,
+                    endpoint = %endpoint,
+                    namespace = ns.as_deref(),
+                    database = db.as_deref(),
+                    duration_ms = duration.as_millis(),
+                    "Successfully connected to SurrealDB endpoint"
+                );
+                // Return success message
                 let msg = format!("Successfully connected to endpoint '{endpoint}'");
                 Ok(CallToolResult::success(vec![Content::text(msg)]))
             }
-            Err(e) => Err(McpError::internal_error(
-                format!("Failed to connect to endpoint '{endpoint}': {e}"),
-                None,
-            )),
+            Err(e) => {
+                let duration = start_time.elapsed();
+                // Output debugging information
+                error!(
+                    connection_id = %self.connection_id,
+                    endpoint = %endpoint,
+                    namespace = ns.as_deref(),
+                    database = db.as_deref(),
+                    duration_ms = duration.as_millis(),
+                    error = %e,
+                    "Failed to connect to SurrealDB endpoint"
+                );
+                // Increment connection error metric
+                counter!("surrealmcp.connection_errors", 1);
+                // Return error message
+                Err(McpError::internal_error(
+                    format!("Failed to connect to endpoint '{endpoint}': {e}"),
+                    None,
+                ))
+            }
         }
     }
 
@@ -766,9 +966,21 @@ This is useful when you want to:
 - Ensure no active connections remain
 "#)]
     async fn disconnect_endpoint(&self) -> Result<CallToolResult, McpError> {
+        // Output debugging information
+        info!(
+            connection_id = %self.connection_id,
+            "Disconnecting from SurrealDB endpoint"
+        );
+        // Lock the database connection
         let mut db_guard = self.db.lock().await;
+        // Set the database connection to None
         *db_guard = None;
-
+        // Output debugging information
+        info!(
+            connection_id = %self.connection_id,
+            "Successfully disconnected from SurrealDB endpoint"
+        );
+        // Return success message
         Ok(CallToolResult::success(vec![Content::text(
             "Successfully disconnected from SurrealDB endpoint".to_string(),
         )]))
@@ -779,17 +991,53 @@ This is useful when you want to:
     /// This method attempts to connect to the database using the configuration
     /// provided at startup. If no endpoint is configured, this method does nothing.
     /// If an endpoint is configured, it will connect using the configured settings.
-    pub async fn initialize_connection(&self) -> Result<(), anyhow::Error> {
+    async fn initialize_connection(&self) -> Result<(), anyhow::Error> {
         if let Some(endpoint) = &self.endpoint {
+            // Output debugging information
+            info!(
+                connection_id = %self.connection_id,
+                endpoint = %endpoint,
+                namespace = self.namespace.as_deref(),
+                database = self.database.as_deref(),
+                "Initializing database connection with startup configuration"
+            );
+            // Get the configured endpoint details
             let user = self.user.as_deref();
             let pass = self.pass.as_deref();
             let ns = self.namespace.as_deref();
             let db = self.database.as_deref();
-
-            let instance = create_client_connection(endpoint, user, pass, ns, db).await?;
-            let mut db_guard = self.db.lock().await;
-            *db_guard = Some(instance);
+            // Create a new SurrealDB connection
+            match create_client_connection(endpoint, user, pass, ns, db).await {
+                Ok(instance) => {
+                    // Update the service's database connection
+                    let mut db_guard = self.db.lock().await;
+                    *db_guard = Some(instance);
+                    // Output debugging information
+                    info!(
+                        connection_id = %self.connection_id,
+                        endpoint = %endpoint,
+                        "Successfully initialized database connection"
+                    );
+                }
+                Err(e) => {
+                    // Output debugging information
+                    error!(
+                        connection_id = %self.connection_id,
+                        endpoint = %endpoint,
+                        error = %e,
+                        "Failed to initialize database connection"
+                    );
+                    // Return error message
+                    return Err(e);
+                }
+            }
+        } else {
+            debug!(
+                connection_id = %self.connection_id,
+                "No endpoint configured for startup connection"
+            );
         }
+        // All ok
         Ok(())
     }
 }
@@ -797,6 +1045,7 @@ This is useful when you want to:
 #[tool(tool_box)]
 impl ServerHandler for SurrealService {
     fn get_info(&self) -> ServerInfo {
+        debug!("Getting server info");
         ServerInfo {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             instructions: Some(include_str!("../instructions.md").to_string()),
@@ -809,14 +1058,19 @@ impl ServerHandler for SurrealService {
         _req: rmcp::model::InitializeRequestParam,
         _ctx: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::InitializeResult, McpError> {
+        debug!("Initializing MCP server");
         Ok(self.get_info())
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize structured logging and metrics
+    init_logging_and_metrics();
     // Parse command line arguments
     let cli = Cli::parse();
+    // Output debugging information
+    info!("Starting SurrealDB MCP server");
     // Run the specified command
     match cli.command {
         Commands::Start {
@@ -827,6 +1081,15 @@ async fn main() -> Result<()> {
             pass,
             listen,
         } => {
+            // Output debugging information
+            info!(
+                endpoint = endpoint.as_deref(),
+                namespace = ns.as_deref(),
+                database = db.as_deref(),
+                username = user.as_deref(),
+                address = %listen,
+                "Server configuration loaded"
+            );
             // Check if we should connect to a unix socket
             let socket_path = env::var("MCP_SOCKET_PATH");
             // Handle both TCP and Unix socket connections
@@ -836,18 +1099,41 @@ async fn main() -> Result<()> {
                 // Remove existing socket file if it exists
                 if socket_path.exists() {
                     fs::remove_file(socket_path).await?;
+                    info!(
+                        "Removed existing Unix socket file: {}",
+                        socket_path.display()
+                    );
                 }
                 // Create a Unix domain socket listener at the specified path
                 let listener = UnixListener::bind(socket_path)?;
                 // Log that the server is listening on the Unix socket
-                println!(
-                    "MCP server listening on Unix socket: {}",
-                    socket_path.display()
+                info!(
+                    path = %socket_path.display(),
+                    "MCP server listening on Unix socket"
                 );
                 // Main server loop for Unix socket connections
                 loop {
                     // Accept incoming connections from the Unix socket
-                    let (stream, _) = listener.accept().await?;
+                    let (stream, addr) = listener.accept().await?;
+                    let connection_id = generate_connection_id();
+                    // Output debugging information
+                    info!(
+                        connection_id = %connection_id,
+                        peer_addr = ?addr,
+                        "New Unix socket connection accepted"
+                    );
+                    // Update connection metrics
+                    let active_connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+                    let total_connections = TOTAL_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+                    gauge!("surrealmcp.active_connections", active_connections as f64);
+                    counter!("surrealmcp.total_connections", 1);
+                    // Output debugging information
+                    info!(
+                        connection_id = %connection_id,
+                        active_connections,
+                        total_connections,
+                        "Connection metrics updated"
+                    );
                     // Clone configuration values for this connection
                     let endpoint = endpoint.clone();
                     let namespace = ns.clone();
@@ -856,16 +1142,58 @@ async fn main() -> Result<()> {
                     let pass = pass.clone();
                     // Spawn a new async task to handle this client connection
                     tokio::spawn(async move {
-                        let service =
-                            SurrealService::with_config(endpoint, namespace, database, user, pass);
+                        let _span = tracing::info_span!("handle_unix_connection", connection_id = %connection_id);
+                        let _enter = _span.enter();
+
+                        debug!("Handling Unix socket connection");
+                        let service = SurrealService::with_config(
+                            connection_id.clone(),
+                            endpoint,
+                            namespace,
+                            database,
+                            user,
+                            pass,
+                        );
                         // Initialize the connection using startup configuration only if endpoint is specified
                         if let Err(e) = service.initialize_connection().await {
-                            eprintln!("Failed to initialize database connection: {e}");
+                            error!(
+                                connection_id = %service.connection_id,
+                                error = %e,
+                                "Failed to initialize database connection"
+                            );
                         }
                         // Create an MCP server instance for this connection
-                        if let Ok(server) = rmcp::serve_server(service, stream).await {
-                            // Wait for the server to complete its work
-                            let _ = server.waiting().await;
+                        match rmcp::serve_server(service.clone(), stream).await {
+                            Ok(server) => {
+                                info!(
+                                    connection_id = %service.connection_id,
+                                    "MCP server instance creation succeeded"
+                                );
+                                // Wait for the server to complete its work
+                                let _ = server.waiting().await;
+                                // Update metrics when connection closes
+                                let active_connections =
+                                    ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+                                gauge!("surrealmcp.active_connections", active_connections as f64);
+                                // Output debugging information
+                                info!(
+                                    connection_id = %service.connection_id,
+                                    active_connections,
+                                    "Connection closed"
+                                );
+                            }
+                            Err(e) => {
+                                // Output debugging information
+                                error!(
+                                    connection_id = %service.connection_id,
+                                    error = %e,
+                                    "MCP server instance creation failed"
+                                );
+                                // Update metrics when connection fails
+                                let active_connections =
+                                    ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+                                gauge!("surrealmcp.active_connections", active_connections as f64);
+                            }
                         }
                     });
                 }
@@ -873,11 +1201,33 @@ async fn main() -> Result<()> {
                 // Create a TCP listener bound to the specified address and port
                 let listener = TcpListener::bind(&listen).await?;
                 // Log that the server is listening on TCP
-                println!("MCP server listening on TCP: {listen}");
+                info!(
+                    address = %listen,
+                    "MCP server listening on TCP"
+                );
                 // Main server loop for TCP connections
                 loop {
                     // Accept incoming TCP connections
-                    let (stream, _) = listener.accept().await?;
+                    let (stream, addr) = listener.accept().await?;
+                    let connection_id = generate_connection_id();
+                    // Output debugging information
+                    info!(
+                        connection_id = %connection_id,
+                        peer_addr = %addr,
+                        "New TCP connection accepted"
+                    );
+                    // Update connection metrics
+                    let active_connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+                    let total_connections = TOTAL_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+                    gauge!("surrealmcp.active_connections", active_connections as f64);
+                    counter!("surrealmcp.total_connections", 1);
+                    // Output debugging information
+                    info!(
+                        connection_id = %connection_id,
+                        active_connections,
+                        total_connections,
+                        "Connection metrics updated"
+                    );
                     // Clone configuration values for this connection
                     let endpoint = endpoint.clone();
                     let namespace = ns.clone();
@@ -886,16 +1236,59 @@ async fn main() -> Result<()> {
                     let pass = pass.clone();
                     // Spawn a new async task to handle this client connection
                     tokio::spawn(async move {
-                        let service =
-                            SurrealService::with_config(endpoint, namespace, database, user, pass);
+                        let _span = tracing::info_span!("handle_tcp_connection", connection_id = %connection_id);
+                        let _enter = _span.enter();
+
+                        debug!("Handling TCP connection");
+                        let service = SurrealService::with_config(
+                            connection_id.clone(),
+                            endpoint,
+                            namespace,
+                            database,
+                            user,
+                            pass,
+                        );
                         // Initialize the connection using startup configuration only if endpoint is specified
                         if let Err(e) = service.initialize_connection().await {
-                            eprintln!("Failed to initialize database connection: {e}");
+                            error!(
+                                connection_id = %service.connection_id,
+                                error = %e,
+                                "Failed to initialize database connection"
+                            );
                         }
                         // Create an MCP server instance for this connection
-                        if let Ok(server) = rmcp::serve_server(service, stream).await {
-                            // Wait for the server to complete its work
-                            let _ = server.waiting().await;
+                        match rmcp::serve_server(service.clone(), stream).await {
+                            Ok(server) => {
+                                // Output debugging information
+                                info!(
+                                    connection_id = %service.connection_id,
+                                    "MCP server instance creation succeeded"
+                                );
+                                // Wait for the server to complete its work
+                                let _ = server.waiting().await;
+                                // Update metrics when connection closes
+                                let active_connections =
+                                    ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+                                gauge!("surrealmcp.active_connections", active_connections as f64);
+                                // Output debugging information
+                                info!(
+                                    connection_id = %service.connection_id,
+                                    active_connections,
+                                    "Connection closed"
+                                );
+                            }
+                            Err(e) => {
+                                // Output debugging information
+                                error!(
+                                    connection_id = %service.connection_id,
+                                    error = %e,
+                                    "MCP server instance creation failed"
+                                );
+                                // Update metrics when connection fails
+                                let active_connections =
+                                    ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+                                gauge!("surrealmcp.active_connections", active_connections as f64);
+                            }
                         }
                     });
                 }
