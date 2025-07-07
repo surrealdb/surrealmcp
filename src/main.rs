@@ -3,10 +3,13 @@ use clap::{Parser, Subcommand};
 use metrics::{counter, gauge, histogram};
 use rmcp::{
     Error as McpError, RoleServer, ServerHandler,
+    handler::server::router::tool::ToolRouter,
+    handler::server::tool::Parameters,
     model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
     service::RequestContext,
-    tool,
+    tool, tool_handler, tool_router,
 };
+use serde::Deserialize;
 use std::env;
 use std::path::Path;
 use std::sync::Arc;
@@ -194,9 +197,87 @@ struct SurrealService {
     pass: Option<String>,
     /// Timestamp when this connection was established
     connected_at: std::time::Instant,
+    /// Router containing all available tools
+    tool_router: ToolRouter<Self>,
 }
 
-#[tool(tool_box)]
+#[derive(Deserialize, schemars::JsonSchema)]
+struct QueryParams {
+    #[schemars(description = "The SurrealQL query string")]
+    query: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct CreateParams {
+    #[schemars(description = "The table name or record ID where the new record will be created.")]
+    table: String,
+    #[schemars(description = "The JSON data to be inserted as the record content.")]
+    data: serde_json::Value,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct SelectParams {
+    #[schemars(description = "The table name, record ID, or complex query to select from.")]
+    thing: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct UpdateParams {
+    #[schemars(description = "The table name, record ID, or complex query to update.")]
+    thing: String,
+    #[schemars(description = "The JSON data to apply to the record.")]
+    data: serde_json::Value,
+    #[schemars(description = "Update mode for applying data to existing records.")]
+    update_mode: Option<String>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct DeleteParams {
+    #[schemars(description = "The table name, record ID, or complex query to delete.")]
+    thing: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct RelateParams {
+    #[schemars(description = "The source record ID in 'table:id' format.")]
+    from_id: String,
+    #[schemars(
+        description = "The type of relationship that describes the connection between records."
+    )]
+    relationship_type: String,
+    #[schemars(description = "The target record ID in 'table:id' format.")]
+    to_id: String,
+    #[schemars(description = "Optional JSON data to store on the relationship edge.")]
+    content: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct PauseResumeParams {
+    #[schemars(description = "ID of the Surreal Cloud instance")]
+    instance_id: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct CreateCloudInstanceParams {
+    #[schemars(description = "Name of the Surreal Cloud instance")]
+    name: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct ConnectParams {
+    #[schemars(description = "The SurrealDB endpoint URL.")]
+    endpoint: String,
+    #[schemars(description = "The namespace to use for organizing data.")]
+    namespace: Option<String>,
+    #[schemars(description = "The database name within the namespace.")]
+    database: Option<String>,
+    #[schemars(description = "Username for authentication.")]
+    username: Option<String>,
+    #[schemars(description = "Password for authentication.")]
+    password: Option<String>,
+}
+
+#[tool_router]
 impl SurrealService {
     /// Create a new SurrealService instance with the provided database connection.
     ///
@@ -221,6 +302,7 @@ impl SurrealService {
             user: None,
             pass: None,
             connected_at: Instant::now(),
+            tool_router: Self::tool_router(),
         }
     }
 
@@ -263,6 +345,7 @@ impl SurrealService {
             user,
             pass,
             connected_at: Instant::now(),
+            tool_router: Self::tool_router(),
         }
     }
 
@@ -292,7 +375,10 @@ Examples:
 - DELETE person WHERE age < 18
 - RELATE person:john->knows->person:jane
 "#)]
-    async fn query(&self, #[tool(param)] query_string: String) -> Result<CallToolResult, McpError> {
+    async fn query(&self, params: Parameters<QueryParams>) -> Result<CallToolResult, McpError> {
+        let QueryParams {
+            query: query_string,
+        } = params.0;
         let start_time = Instant::now();
         let query_id = QUERY_COUNTER.fetch_add(1, Ordering::SeqCst);
         // Output debugging information
@@ -395,42 +481,11 @@ Examples:
 - create('person:john', {"name": "John", "age": 30})
 - create('article', {"title": "SurrealDB Guide", "content": "..."})
 "#)]
-    async fn create(
-        &self,
-        #[tool(param)]
-        #[schemars(description = r#"
-The table name or record ID where the new record will be created.
-
-Can be a simple table name like 'person' or a specific record ID like 'person:john'.
-If you provide a table name, SurrealDB will generate a unique ID.
-If you provide a specific record ID, that exact ID will be used.
-
-Examples: 'person', 'person:john', 'article:surreal_guide'
-"#)]
-        table: String,
-        #[tool(param)]
-        #[schemars(description = r#"
-The JSON data to be inserted as the record content.
-
-This can be any valid JSON object with nested objects, arrays, strings, numbers, 
-booleans, etc.
-
-Example:
-{
-  "name": "John",
-  "age": 30,
-  "tags": ["developer", "rust"],
-  "profile": {
-    "city": "NYC",
-    "website": "https://example.com"
-  }
-}
-"#)]
-        data: serde_json::Value,
-    ) -> Result<CallToolResult, McpError> {
+    async fn create(&self, params: Parameters<CreateParams>) -> Result<CallToolResult, McpError> {
+        let CreateParams { table, data } = params.0;
         debug!("Creating record in table: {table}");
         let query = format!("CREATE {table} CONTENT {data}");
-        self.query(query).await
+        self.query(Parameters(QueryParams { query })).await
     }
 
     /// Execute a SurrealDB SELECT statement to retrieve records from the database.
@@ -465,24 +520,11 @@ Examples:
 - select('person:john.*')
 - select('person WHERE ->knows->person.age > 30')
 "#)]
-    async fn select(
-        &self,
-        #[tool(param)]
-        #[schemars(description = r#"
-The table name, record ID, or complex query to select from.
-
-Examples:
-- 'person' (all records from person table)
-- 'person:john' (specific record with ID 'john')
-- 'person WHERE age > 25' (filtered records)
-- 'person:john.*' (all related records)
-- 'person WHERE ->knows->person.age > 30' (graph query)
-"#)]
-        thing: String,
-    ) -> Result<CallToolResult, McpError> {
+    async fn select(&self, params: Parameters<SelectParams>) -> Result<CallToolResult, McpError> {
+        let SelectParams { thing } = params.0;
         debug!("Selecting records: {thing}");
         let query = format!("SELECT * FROM{thing}");
-        self.query(query).await
+        self.query(Parameters(QueryParams { query })).await
     }
 
     /// Execute a SurrealDB UPDATE statement to modify records in the database.
@@ -519,48 +561,12 @@ Examples:
 - update('person:john', [{"op": "replace", "path": "/age", "value": 31}], Some('patch'))
 - update('person WHERE age < 18', {"status": "minor"}, None)
 "#)]
-    async fn update(
-        &self,
-        #[tool(param)]
-        #[schemars(description = r#"
-The table name, record ID, or complex query to update.
-
-Examples:
-- 'person:john' (specific record)
-- 'person WHERE age < 18' (filtered records)
-- 'person' (all records in table)
-- 'article WHERE published = false' (conditional update)
-"#)]
-        thing: String,
-        #[tool(param)]
-        #[schemars(description = r#"
-The JSON data to apply to the record.
-
-For 'replace' mode: This should be the complete record content.
-For 'merge' mode: This can be partial data that will be combined with existing data.
-For 'patch' mode: This should be a JSON patch array with operations.
-
-Examples:
-Replace: {"name": "John", "age": 31, "city": "NYC"}
-Merge: {"city": "NYC", "phone": "123-456-7890"}
-Patch: [{"op": "replace", "path": "/age", "value": 31}]
-"#)]
-        data: serde_json::Value,
-        #[tool(param)]
-        #[schemars(description = r#"
-Update mode for applying data to existing records.
-
-- 'replace' (default): Replaces entire record content
-- 'merge': Combines new data with existing data
-- 'patch': Applies JSON patch operations
-
-Choose based on your needs:
-- Use 'replace' when you want to completely overwrite the record
-- Use 'merge' when you want to add/update specific fields
-- Use 'patch' for precise field-level changes
-"#)]
-        update_mode: Option<String>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn update(&self, params: Parameters<UpdateParams>) -> Result<CallToolResult, McpError> {
+        let UpdateParams {
+            thing,
+            data,
+            update_mode,
+        } = params.0;
         let mode = update_mode.as_deref().unwrap_or("replace");
         debug!("Updating records: {thing}");
         let query = match mode {
@@ -569,7 +575,7 @@ Choose based on your needs:
             _ => format!("UPDATE {thing} CONTENT {data}"), // replace is default
         };
 
-        self.query(query).await
+        self.query(Parameters(QueryParams { query })).await
     }
 
     /// Execute a SurrealDB DELETE statement to remove records from the database.
@@ -602,23 +608,11 @@ Examples:
 - delete('article WHERE published = false')
 - delete('person')  # Deletes all records from person table
 "#)]
-    async fn delete(
-        &self,
-        #[tool(param)]
-        #[schemars(description = r#"
-The table name, record ID, or complex query to delete.
-
-Examples:
-- 'person:john' (specific record)
-- 'person WHERE age < 18' (filtered records)
-- 'article WHERE published = false' (conditional deletion)
-- 'person' (all records in table - use with caution!)
-"#)]
-        thing: String,
-    ) -> Result<CallToolResult, McpError> {
+    async fn delete(&self, params: Parameters<DeleteParams>) -> Result<CallToolResult, McpError> {
+        let DeleteParams { thing } = params.0;
         debug!("Deleting records: {thing}");
         let query = format!("DELETE {thing}");
-        self.query(query).await
+        self.query(Parameters(QueryParams { query })).await
     }
 
     /// Create a relationship between two records in the database.
@@ -650,60 +644,13 @@ Examples:
 - relate('company:acme', 'employs', 'person:john', {"role": "developer", "start_date": "2023-01-01"})
 - relate('user:alice', 'likes', 'post:123', {"timestamp": "2024-01-15T10:30:00Z"})
 "#)]
-    async fn relate(
-        &self,
-        #[tool(param)]
-        #[schemars(description = r#"
-The source record ID in 'table:id' format.
-
-This is the record that the relationship starts from.
-
-Examples:
-- 'person:john'
-- 'article:surreal_guide'
-- 'company:acme'
-- 'user:alice'
-"#)]
-        from_id: String,
-        #[tool(param)]
-        #[schemars(description = r#"
-The type of relationship that describes the connection between records.
-
-Examples:
-- 'wrote', 'authored', 'created' (content relationships)
-- 'knows', 'follows', 'friends' (social relationships)
-- 'owns', 'belongs_to', 'part_of' (ownership relationships)
-- 'works_for', 'manages', 'employs' (work relationships)
-- 'likes', 'dislikes', 'rates' (preference relationships)
-"#)]
-        relationship_type: String,
-        #[tool(param)]
-        #[schemars(description = r#"
-The target record ID in 'table:id' format.
-
-This is the record that the relationship points to.
-
-Examples:
-- 'article:surreal_guide'
-- 'person:jane'
-- 'company:acme'
-- 'post:123'
-"#)]
-        to_id: String,
-        #[tool(param)]
-        #[schemars(description = r#"
-Optional JSON data to store on the relationship edge.
-
-This can include metadata like dates, weights, descriptions, ratings, etc.
-
-Examples:
-- {"since": "2020-01-01", "strength": "close"}
-- {"date": "2024-01-15", "word_count": 1500}
-- {"role": "developer", "start_date": "2023-01-01"}
-- {"rating": 5, "comment": "Great article!"}
-"#)]
-        content: Option<serde_json::Value>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn relate(&self, params: Parameters<RelateParams>) -> Result<CallToolResult, McpError> {
+        let RelateParams {
+            from_id,
+            relationship_type,
+            to_id,
+            content,
+        } = params.0;
         debug!(
             "Creating relationship: {} -> {} -> {}",
             from_id, relationship_type, to_id
@@ -715,7 +662,7 @@ Examples:
             None => format!("RELATE {from_id}->{relationship_type}->{to_id}"),
         };
 
-        self.query(query).await
+        self.query(Parameters(QueryParams { query })).await
     }
 
     #[tool(description = "List Surreal Cloud instances")]
@@ -728,8 +675,9 @@ Examples:
     #[tool(description = "Pause Surreal Cloud instance")]
     async fn pause_cloud_instance(
         &self,
-        #[tool(param)] instance_id: String,
+        params: Parameters<PauseResumeParams>,
     ) -> Result<CallToolResult, McpError> {
+        let PauseResumeParams { instance_id } = params.0;
         debug!("Pausing cloud instance: {instance_id}");
         let msg = "pause_cloud_instance not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
@@ -738,8 +686,9 @@ Examples:
     #[tool(description = "Resume Surreal Cloud instance")]
     async fn resume_cloud_instance(
         &self,
-        #[tool(param)] instance_id: String,
+        params: Parameters<PauseResumeParams>,
     ) -> Result<CallToolResult, McpError> {
+        let PauseResumeParams { instance_id } = params.0;
         debug!("Resuming cloud instance: {instance_id}");
         let msg = "resume_cloud_instance not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
@@ -748,8 +697,9 @@ Examples:
     #[tool(description = "Create Surreal Cloud instance")]
     async fn create_cloud_instance(
         &self,
-        #[tool(param)] name: String,
+        params: Parameters<CreateCloudInstanceParams>,
     ) -> Result<CallToolResult, McpError> {
+        let CreateCloudInstanceParams { name } = params.0;
         debug!("Creating cloud instance: {name}");
         let msg = "create_cloud_instance not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
@@ -785,60 +735,15 @@ Examples:
 "#)]
     async fn connect_endpoint(
         &self,
-        #[tool(param)]
-        #[schemars(description = r#"
-The SurrealDB endpoint URL.
-
-Supported formats:
-- 'memory' (in-memory, no persistence)
-- 'file:/path/to/db' (local file storage)
-- 'rocksdb:/path/to/db' (high-performance local storage)
-- 'tikv://localhost:2379' (distributed storage)
-- 'ws://localhost:8000' (WebSocket remote)
-- 'http://localhost:8000' (HTTP remote)
-"#)]
-        endpoint: String,
-        #[tool(param)]
-        #[schemars(description = r#"
-The namespace to use for organizing data.
-
-Namespaces provide logical separation of data.
-
-Examples: 'myapp', 'production', 'development', 'test'
-Defaults to 'test' if not specified
-"#)]
-        namespace: Option<String>,
-        #[tool(param)]
-        #[schemars(description = r#"
-The database name within the namespace.
-
-Databases provide further logical separation.
-
-Examples: 'users', 'products', 'analytics', 'main'
-Defaults to 'test' if not specified
-"#)]
-        database: Option<String>,
-        #[tool(param)]
-        #[schemars(description = r#"
-Username for authentication.
-
-Only required for remote connections (ws://, wss://, http://, https://).
-For local engines (memory, file, rocksdb, tikv), authentication is not needed.
-
-Examples: 'root', 'admin', 'user'
-"#)]
-        username: Option<String>,
-        #[tool(param)]
-        #[schemars(description = r#"
-Password for authentication.
-
-Only required for remote connections (ws://, wss://, http://, https://).
-For local engines (memory, file, rocksdb, tikv), authentication is not needed.
-
-Examples: 'password', 'secret123', 'admin_pass'
-"#)]
-        password: Option<String>,
+        params: Parameters<ConnectParams>,
     ) -> Result<CallToolResult, McpError> {
+        let ConnectParams {
+            endpoint,
+            namespace,
+            database,
+            username,
+            password,
+        } = params.0;
         let start_time = Instant::now();
         // Output debugging information
         info!(
@@ -1063,7 +968,7 @@ This is useful when you want to:
     }
 }
 
-#[tool(tool_box)]
+#[tool_handler]
 impl ServerHandler for SurrealService {
     fn get_info(&self) -> ServerInfo {
         debug!("Getting server info");
