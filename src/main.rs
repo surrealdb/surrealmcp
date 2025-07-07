@@ -63,7 +63,7 @@ fn generate_connection_id() -> String {
         .unwrap()
         .as_millis();
     let random = rand::random::<u32>();
-    format!("conn_{:x}_{:x}", timestamp, random)
+    format!("conn_{timestamp:x}_{random:x}")
 }
 
 /// Format duration in a human-readable way
@@ -72,18 +72,18 @@ fn format_duration(duration: std::time::Duration) -> String {
     let millis = duration.subsec_millis();
 
     if total_secs == 0 {
-        format!("{}ms", millis)
+        format!("{millis}ms")
     } else if total_secs < 60 {
-        format!("{}.{:03}s", total_secs, millis)
+        format!("{total_secs}.{millis:03}s")
     } else if total_secs < 3600 {
         let minutes = total_secs / 60;
         let seconds = total_secs % 60;
-        format!("{}m {}s", minutes, seconds)
+        format!("{minutes}m {seconds}s")
     } else {
         let hours = total_secs / 3600;
         let minutes = (total_secs % 3600) / 60;
         let seconds = total_secs % 60;
-        format!("{}h {}m {}s", hours, minutes, seconds)
+        format!("{hours}h {minutes}m {seconds}s")
     }
 }
 
@@ -721,7 +721,7 @@ Examples:
     #[tool(description = "List Surreal Cloud instances")]
     async fn list_cloud_instances(&self) -> Result<CallToolResult, McpError> {
         debug!("Listing cloud instances");
-        let msg = format!("list_cloud_instances not implemented");
+        let msg = "list_cloud_instances not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
 
@@ -731,7 +731,7 @@ Examples:
         #[tool(param)] instance_id: String,
     ) -> Result<CallToolResult, McpError> {
         debug!("Pausing cloud instance: {instance_id}");
-        let msg = format!("pause_cloud_instance not implemented");
+        let msg = "pause_cloud_instance not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
 
@@ -741,7 +741,7 @@ Examples:
         #[tool(param)] instance_id: String,
     ) -> Result<CallToolResult, McpError> {
         debug!("Resuming cloud instance: {instance_id}");
-        let msg = format!("resume_cloud_instance not implemented");
+        let msg = "resume_cloud_instance not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
 
@@ -751,7 +751,7 @@ Examples:
         #[tool(param)] name: String,
     ) -> Result<CallToolResult, McpError> {
         debug!("Creating cloud instance: {name}");
-        let msg = format!("create_cloud_instance not implemented");
+        let msg = "create_cloud_instance not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
 
