@@ -66,6 +66,27 @@ fn generate_connection_id() -> String {
     format!("conn_{:x}_{:x}", timestamp, random)
 }
 
+/// Format duration in a human-readable way
+fn format_duration(duration: std::time::Duration) -> String {
+    let total_secs = duration.as_secs();
+    let millis = duration.subsec_millis();
+
+    if total_secs == 0 {
+        format!("{}ms", millis)
+    } else if total_secs < 60 {
+        format!("{}.{:03}s", total_secs, millis)
+    } else if total_secs < 3600 {
+        let minutes = total_secs / 60;
+        let seconds = total_secs % 60;
+        format!("{}m {}s", minutes, seconds)
+    } else {
+        let hours = total_secs / 3600;
+        let minutes = (total_secs % 3600) / 60;
+        let seconds = total_secs % 60;
+        format!("{}h {}m {}s", hours, minutes, seconds)
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "surrealmcp")]
 #[command(about = "SurrealDB MCP Server")]
@@ -1178,6 +1199,7 @@ async fn main() -> Result<()> {
                                 // Output debugging information
                                 info!(
                                     connection_id = %service.connection_id,
+                                    connection_time = %format_duration(Instant::now() - service.connected_at),
                                     active_connections,
                                     "Connection closed"
                                 );
@@ -1273,6 +1295,7 @@ async fn main() -> Result<()> {
                                 // Output debugging information
                                 info!(
                                     connection_id = %service.connection_id,
+                                    connection_time = %format_duration(Instant::now() - service.connected_at),
                                     active_connections,
                                     "Connection closed"
                                 );
