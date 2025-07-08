@@ -1,6 +1,11 @@
 use anyhow::{Result, anyhow};
+use axum::Router;
 use clap::{Parser, Subcommand};
 use metrics::{counter, gauge, histogram};
+use rmcp::transport::{
+    StreamableHttpServerConfig,
+    streamable_http_server::{session::local::LocalSessionManager, tower::StreamableHttpService},
+};
 use rmcp::{
     Error as McpError, RoleServer, ServerHandler,
     handler::server::router::tool::ToolRouter,
@@ -1220,105 +1225,34 @@ async fn main() -> Result<()> {
                         bind_address = %bind_address,
                         "Starting MCP server in HTTP mode"
                     );
-                    // Create a TCP listener bound to the specified address and port
+                    // Create a TCP listener for the HTTP server
                     let listener = TcpListener::bind(bind_address).await?;
-                    // Main server loop for TCP connections
-                    loop {
-                        // Accept incoming TCP connections
-                        let (stream, addr) = listener.accept().await?;
-                        // Generate a connection ID for this connection
-                        let connection_id = generate_connection_id();
-                        // Output debugging information
-                        info!(
-                            connection_id = %connection_id,
-                            peer_addr = %addr,
-                            "New TCP connection accepted"
-                        );
-                        // Update connection metrics
-                        let active_connections =
-                            ACTIVE_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
-                        let total_connections =
-                            TOTAL_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
-                        gauge!("surrealmcp.active_connections", active_connections as f64);
-                        counter!("surrealmcp.total_connections", 1);
-                        // Output debugging information
-                        info!(
-                            connection_id = %connection_id,
-                            active_connections,
-                            total_connections,
-                            "Connection metrics updated"
-                        );
-                        // Clone configuration values for this connection
-                        let endpoint = endpoint.clone();
-                        let namespace = ns.clone();
-                        let database = db.clone();
-                        let user = user.clone();
-                        let pass = pass.clone();
-                        // Spawn a new async task to handle this client connection
-                        tokio::spawn(async move {
-                            let _span = tracing::info_span!("handle_tcp_connection", connection_id = %connection_id);
-                            let _enter = _span.enter();
-
-                            debug!("Handling TCP connection");
-                            let service = SurrealService::with_config(
-                                connection_id.clone(),
-                                endpoint,
-                                namespace,
-                                database,
-                                user,
-                                pass,
-                            );
-                            // Initialize the connection using startup configuration only if endpoint is specified
-                            if let Err(e) = service.initialize_connection().await {
-                                error!(
-                                    connection_id = %service.connection_id,
-                                    error = %e,
-                                    "Failed to initialize database connection"
-                                );
-                            }
-                            // Create an MCP server instance for this connection
-                            match rmcp::serve_server(service.clone(), stream).await {
-                                Ok(server) => {
-                                    // Output debugging information
-                                    info!(
-                                        connection_id = %service.connection_id,
-                                        "MCP server instance creation succeeded"
-                                    );
-                                    // Wait for the server to complete its work
-                                    let _ = server.waiting().await;
-                                    // Update metrics when connection closes
-                                    let active_connections =
-                                        ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
-                                    gauge!(
-                                        "surrealmcp.active_connections",
-                                        active_connections as f64
-                                    );
-                                    // Output debugging information
-                                    info!(
-                                        connection_id = %service.connection_id,
-                                        connection_time = %format_duration(Instant::now() - service.connected_at),
-                                        active_connections,
-                                        "Connection closed"
-                                    );
-                                }
-                                Err(e) => {
-                                    // Output debugging information
-                                    error!(
-                                        connection_id = %service.connection_id,
-                                        error = %e,
-                                        "MCP server instance creation failed"
-                                    );
-                                    // Update metrics when connection fails
-                                    let active_connections =
-                                        ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
-                                    gauge!(
-                                        "surrealmcp.active_connections",
-                                        active_connections as f64
-                                    );
-                                }
-                            }
-                        });
-                    }
+                    // Create a session manager for the HTTP server
+                    let session_manager = Arc::new(LocalSessionManager::default());
+                    // Create a new SurrealDB service instance for the HTTP server
+                    let service = StreamableHttpService::new(
+                        move || {
+                            Ok(SurrealService::with_config(
+                                generate_connection_id(),
+                                endpoint.clone(),
+                                ns.clone(),
+                                db.clone(),
+                                user.clone(),
+                                pass.clone(),
+                            ))
+                        },
+                        session_manager,
+                        StreamableHttpServerConfig {
+                            stateful_mode: true,
+                            sse_keep_alive: None,
+                        },
+                    );
+                    // Create an Axum router at /mcp
+                    let router = Router::new().nest_service("/mcp", service);
+                    // Serve the Axum router over HTTP
+                    axum::serve(listener, router).await?;
+                    // All ok
+                    Ok(())
                 }
             }
         }
