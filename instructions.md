@@ -104,7 +104,7 @@ Use `relate` to create graph relationships:
 
 ## SurrealQL reference
 
-**IMPORTANT**: SurrealQL is NOT similar to ANSI-SQL. **Never** assume ANSI-SQL or SQL knowledge from other databases applies to SurrealQL. Always refer to the official SurrealDB website at https://surrealdb.com or the documentation at https://surrealdb.com/docs for accurate syntax and behavior.
+**IMPORTANT**: SurrealQL is NOT similar to ANSI-SQL. **Never** assume ANSI-SQL or SQL knowledge from other databases applies to SurrealQL. Always refer to the examples below, the official SurrealDB website at https://surrealdb.com, or the documentation at https://surrealdb.com/docs for accurate syntax and behavior.
 
 ### Key differences from SQL
 
