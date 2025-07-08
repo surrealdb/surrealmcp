@@ -72,15 +72,23 @@ pub struct RelateParams {
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
-pub struct PauseResumeParams {
-    #[schemars(description = "ID of the Surreal Cloud instance")]
+pub struct CloudOrganizationParams {
+    #[schemars(description = "ID of the SurrealDB Cloud organization")]
+    pub organization_id: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct CloudInstanceParams {
+    #[schemars(description = "ID of the SurrealDB Cloud instance")]
     pub instance_id: String,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct CreateCloudInstanceParams {
-    #[schemars(description = "Name of the Surreal Cloud instance")]
+    #[schemars(description = "Name of the SurrealDB Cloud instance")]
     pub name: String,
+    #[schemars(description = "ID of the SurrealDB Cloud organization")]
+    pub organization_id: String,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -527,42 +535,78 @@ Examples:
         self.query(Parameters(QueryParams { query })).await
     }
 
-    #[tool(description = "List Surreal Cloud instances")]
-    pub async fn list_cloud_instances(&self) -> Result<CallToolResult, McpError> {
-        debug!("Listing cloud instances");
+    #[tool(description = "List SurrealDB Cloud organizations")]
+    pub async fn list_cloud_organizations(&self) -> Result<CallToolResult, McpError> {
+        debug!("Listing cloud organizations");
+        let msg = "list_cloud_organizations not implemented".to_string();
+        Ok(CallToolResult::success(vec![Content::text(msg)]))
+    }
+
+    #[tool(description = "List SurrealDB Cloud instances for a given organization")]
+    pub async fn list_cloud_instances(
+        &self,
+        params: Parameters<CloudOrganizationParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let CloudOrganizationParams { organization_id } = params.0;
+        debug!("Listing cloud instances for organization: {organization_id}");
         let msg = "list_cloud_instances not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
 
-    #[tool(description = "Pause Surreal Cloud instance")]
+    #[tool(description = "Pause SurrealDB Cloud instance")]
     pub async fn pause_cloud_instance(
         &self,
-        params: Parameters<PauseResumeParams>,
+        params: Parameters<CloudInstanceParams>,
     ) -> Result<CallToolResult, McpError> {
-        let PauseResumeParams { instance_id } = params.0;
+        let CloudInstanceParams { instance_id } = params.0;
         debug!("Pausing cloud instance: {instance_id}");
         let msg = "pause_cloud_instance not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
 
-    #[tool(description = "Resume Surreal Cloud instance")]
+    #[tool(description = "Resume SurrealDB Cloud instance")]
     pub async fn resume_cloud_instance(
         &self,
-        params: Parameters<PauseResumeParams>,
+        params: Parameters<CloudInstanceParams>,
     ) -> Result<CallToolResult, McpError> {
-        let PauseResumeParams { instance_id } = params.0;
+        let CloudInstanceParams { instance_id } = params.0;
         debug!("Resuming cloud instance: {instance_id}");
         let msg = "resume_cloud_instance not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
 
-    #[tool(description = "Create Surreal Cloud instance")]
+    #[tool(description = "Resume SurrealDB Cloud instance")]
+    pub async fn get_cloud_instance_status(
+        &self,
+        params: Parameters<CloudInstanceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let CloudInstanceParams { instance_id } = params.0;
+        debug!("Getting status for cloud instance: {instance_id}");
+        let msg = "get_cloud_instance_status not implemented".to_string();
+        Ok(CallToolResult::success(vec![Content::text(msg)]))
+    }
+
+    #[tool(description = "Resume SurrealDB Cloud instance")]
+    pub async fn get_cloud_instance_metrics(
+        &self,
+        params: Parameters<CloudInstanceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let CloudInstanceParams { instance_id } = params.0;
+        debug!("Getting metrics for cloud instance: {instance_id}");
+        let msg = "get_cloud_instance_metrics not implemented".to_string();
+        Ok(CallToolResult::success(vec![Content::text(msg)]))
+    }
+
+    #[tool(description = "Create SurrealDB Cloud instance")]
     pub async fn create_cloud_instance(
         &self,
         params: Parameters<CreateCloudInstanceParams>,
     ) -> Result<CallToolResult, McpError> {
-        let CreateCloudInstanceParams { name } = params.0;
-        debug!("Creating cloud instance: {name}");
+        let CreateCloudInstanceParams {
+            name,
+            organization_id,
+        } = params.0;
+        debug!("Creating cloud instance: {name} in organization: {organization_id}");
         let msg = "create_cloud_instance not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
