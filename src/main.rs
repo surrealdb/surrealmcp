@@ -1,3 +1,4 @@
+use crate::server::ServerConfig;
 use anyhow::Result;
 use clap::Parser;
 
@@ -22,6 +23,21 @@ async fn main() -> Result<()> {
             pass,
             bind_address,
             socket_path,
-        } => server::start_server(endpoint, ns, db, user, pass, bind_address, socket_path).await,
+            rate_limit_rps,
+            rate_limit_burst,
+        } => {
+            let config = ServerConfig {
+                endpoint,
+                ns,
+                db,
+                user,
+                pass,
+                bind_address,
+                socket_path,
+                rate_limit_rps,
+                rate_limit_burst,
+            };
+            server::start_server(config).await
+        }
     }
 }

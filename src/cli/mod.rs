@@ -34,5 +34,11 @@ pub enum Commands {
         /// The MCP server Unix socket path
         #[arg(long, env = "SURREAL_MCP_SOCKET_PATH", group = "server")]
         socket_path: Option<String>,
+        /// Rate limit requests per second (default: 100)
+        #[arg(long, env = "SURREAL_MCP_RATE_LIMIT_RPS", default_value = "100")]
+        rate_limit_rps: u32,
+        /// Rate limit burst size (default: 200)
+        #[arg(long, env = "SURREAL_MCP_RATE_LIMIT_BURST", default_value = "200")]
+        rate_limit_burst: u32,
     },
 }
