@@ -10,7 +10,6 @@ use rmcp::{
     tool, tool_handler, tool_router,
 };
 use serde::Deserialize;
-use std::env;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -29,25 +28,32 @@ static TOTAL_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
 static QUERY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Initialize structured logging and metrics collection
-fn init_logging_and_metrics() {
+fn init_logging_and_metrics(stdio: bool) {
     // Set up environment filter for log levels
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("surrealmcp=trace,rmcp=warn"));
-
-    // Create file appender for logs
-    let file_appender = tracing_appender::rolling::daily("logs", "surrealmcp.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
-    // Initialize tracing subscriber with console and file output
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(tracing_subscriber::fmt::layer().with_target(true))
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_target(true)
-                .with_writer(non_blocking),
-        )
-        .init();
+    // Check if we are running in stdio mode
+    if stdio {
+        // Initialize tracing subscriber with stderr output
+        tracing_subscriber::registry()
+            .with(EnvFilter::builder().parse(env_filter.to_string()).unwrap())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_target(true)
+                    .with_writer(std::io::stderr),
+            )
+            .init();
+    } else {
+        // Initialize tracing subscriber with stdout output
+        tracing_subscriber::registry()
+            .with(EnvFilter::builder().parse(env_filter.to_string()).unwrap())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_target(true)
+                    .with_writer(std::io::stdout),
+            )
+            .init();
+    }
     // Output debugging information
     info!("Logging and tracing initialized");
     // Initialize metrics with default values
@@ -118,14 +124,12 @@ enum Commands {
         /// The SurrealDB password to use
         #[arg(short, long, env = "SURREALDB_PASS")]
         pass: Option<String>,
-        /// The MCP server listen address
-        #[arg(
-            short,
-            long,
-            env = "SURREAL_MCP_LISTEN",
-            default_value = "0.0.0.0:8080"
-        )]
-        listen: String,
+        /// The MCP server bind address (host:port)
+        #[arg(long, env = "SURREAL_MCP_BIND_ADDRESS", group = "connection")]
+        bind_address: Option<String>,
+        /// The MCP server Unix socket path
+        #[arg(long, env = "SURREAL_MCP_SOCKET_PATH", group = "connection")]
+        socket_path: Option<String>,
     },
 }
 
@@ -973,7 +977,11 @@ impl ServerHandler for SurrealService {
     fn get_info(&self) -> ServerInfo {
         debug!("Getting server info");
         ServerInfo {
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            capabilities: ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_prompts()
+                .build(),
             instructions: Some(include_str!("../instructions.md").to_string()),
             ..Default::default()
         }
@@ -985,18 +993,22 @@ impl ServerHandler for SurrealService {
         _ctx: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::InitializeResult, McpError> {
         debug!("Initializing MCP server");
+        // Initialize the connection using startup configuration
+        if let Err(e) = self.initialize_connection().await {
+            error!(
+                connection_id = %self.connection_id,
+                error = %e,
+                "Failed to initialize database connection during MCP initialization"
+            );
+        }
         Ok(self.get_info())
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize structured logging and metrics
-    init_logging_and_metrics();
     // Parse command line arguments
     let cli = Cli::parse();
-    // Output debugging information
-    info!("Starting SurrealDB MCP server");
     // Run the specified command
     match cli.command {
         Commands::Start {
@@ -1005,7 +1017,8 @@ async fn main() -> Result<()> {
             db,
             user,
             pass,
-            listen,
+            bind_address,
+            socket_path,
         } => {
             // Output debugging information
             info!(
@@ -1013,212 +1026,299 @@ async fn main() -> Result<()> {
                 namespace = ns.as_deref(),
                 database = db.as_deref(),
                 username = user.as_deref(),
-                address = %listen,
+                bind_address = bind_address.as_deref(),
+                socket_path = socket_path.as_deref(),
                 "Server configuration loaded"
             );
-            // Check if we should connect to a unix socket
-            let socket_path = env::var("MCP_SOCKET_PATH");
-            // Handle both TCP and Unix socket connections
-            if let Ok(socket_path) = socket_path {
-                // Unix socket mode
-                let socket_path = Path::new(&socket_path);
-                // Remove existing socket file if it exists
-                if socket_path.exists() {
-                    fs::remove_file(socket_path).await?;
-                    info!(
-                        "Removed existing Unix socket file: {}",
-                        socket_path.display()
-                    );
+            // Determine server mode based on arguments
+            match (bind_address.as_ref(), socket_path.as_ref()) {
+                (Some(_), Some(_)) => {
+                    // This should never happen due to CLI argument groups
+                    return Err(anyhow!(
+                        "Cannot specify both --bind-address and --socket-path"
+                    ));
                 }
-                // Create a Unix domain socket listener at the specified path
-                let listener = UnixListener::bind(socket_path)?;
-                // Log that the server is listening on the Unix socket
-                info!(
-                    path = %socket_path.display(),
-                    "MCP server listening on Unix socket"
-                );
-                // Main server loop for Unix socket connections
-                loop {
-                    // Accept incoming connections from the Unix socket
-                    let (stream, addr) = listener.accept().await?;
+                // We are running as a STDIO server
+                (None, None) => {
+                    // Initialize structured logging and metrics
+                    init_logging_and_metrics(true);
+                    // Output debugging information
+                    info!("Starting MCP server in stdio mode");
+                    // Generate a connection ID for this connection
                     let connection_id = generate_connection_id();
-                    // Output debugging information
-                    info!(
-                        connection_id = %connection_id,
-                        peer_addr = ?addr,
-                        "New Unix socket connection accepted"
+                    // Create a new SurrealDB service instance
+                    let service = SurrealService::with_config(
+                        connection_id.clone(),
+                        endpoint,
+                        ns,
+                        db,
+                        user,
+                        pass,
                     );
-                    // Update connection metrics
-                    let active_connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
-                    let total_connections = TOTAL_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
-                    gauge!("surrealmcp.active_connections", active_connections as f64);
-                    counter!("surrealmcp.total_connections", 1);
-                    // Output debugging information
-                    info!(
-                        connection_id = %connection_id,
-                        active_connections,
-                        total_connections,
-                        "Connection metrics updated"
-                    );
-                    // Clone configuration values for this connection
-                    let endpoint = endpoint.clone();
-                    let namespace = ns.clone();
-                    let database = db.clone();
-                    let user = user.clone();
-                    let pass = pass.clone();
-                    // Spawn a new async task to handle this client connection
-                    tokio::spawn(async move {
-                        let _span = tracing::info_span!("handle_unix_connection", connection_id = %connection_id);
-                        let _enter = _span.enter();
-
-                        debug!("Handling Unix socket connection");
-                        let service = SurrealService::with_config(
-                            connection_id.clone(),
-                            endpoint,
-                            namespace,
-                            database,
-                            user,
-                            pass,
+                    // Initialize the connection using startup configuration
+                    if let Err(e) = service.initialize_connection().await {
+                        error!(
+                            connection_id = %service.connection_id,
+                            error = %e,
+                            "Failed to initialize database connection"
                         );
-                        // Initialize the connection using startup configuration only if endpoint is specified
-                        if let Err(e) = service.initialize_connection().await {
+                    }
+                    // Create an MCP server instance for stdin/stdout
+                    match rmcp::serve_server(
+                        service.clone(),
+                        (tokio::io::stdin(), tokio::io::stdout()),
+                    )
+                    .await
+                    {
+                        Ok(server) => {
+                            info!(
+                                connection_id = %service.connection_id,
+                                "MCP server instance creation succeeded"
+                            );
+                            // Wait for the server to complete its work
+                            let _ = server.waiting().await;
+                            info!(
+                                connection_id = %service.connection_id,
+                                "MCP server completed"
+                            );
+                        }
+                        Err(e) => {
                             error!(
                                 connection_id = %service.connection_id,
                                 error = %e,
-                                "Failed to initialize database connection"
+                                "MCP server instance creation failed"
                             );
+                            return Err(anyhow!(e));
                         }
-                        // Create an MCP server instance for this connection
-                        match rmcp::serve_server(service.clone(), stream).await {
-                            Ok(server) => {
-                                info!(
-                                    connection_id = %service.connection_id,
-                                    "MCP server instance creation succeeded"
-                                );
-                                // Wait for the server to complete its work
-                                let _ = server.waiting().await;
-                                // Update metrics when connection closes
-                                let active_connections =
-                                    ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
-                                gauge!("surrealmcp.active_connections", active_connections as f64);
-                                // Output debugging information
-                                info!(
-                                    connection_id = %service.connection_id,
-                                    connection_time = %format_duration(Instant::now() - service.connected_at),
-                                    active_connections,
-                                    "Connection closed"
-                                );
-                            }
-                            Err(e) => {
-                                // Output debugging information
-                                error!(
-                                    connection_id = %service.connection_id,
-                                    error = %e,
-                                    "MCP server instance creation failed"
-                                );
-                                // Update metrics when connection fails
-                                let active_connections =
-                                    ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
-                                gauge!("surrealmcp.active_connections", active_connections as f64);
-                            }
-                        }
-                    });
+                    }
+                    Ok(())
                 }
-            } else {
-                // Create a TCP listener bound to the specified address and port
-                let listener = TcpListener::bind(&listen).await?;
-                // Log that the server is listening on TCP
-                info!(
-                    address = %listen,
-                    "MCP server listening on TCP"
-                );
-                // Main server loop for TCP connections
-                loop {
-                    // Accept incoming TCP connections
-                    let (stream, addr) = listener.accept().await?;
-                    let connection_id = generate_connection_id();
-                    // Output debugging information
-                    info!(
-                        connection_id = %connection_id,
-                        peer_addr = %addr,
-                        "New TCP connection accepted"
-                    );
-                    // Update connection metrics
-                    let active_connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
-                    let total_connections = TOTAL_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
-                    gauge!("surrealmcp.active_connections", active_connections as f64);
-                    counter!("surrealmcp.total_connections", 1);
-                    // Output debugging information
-                    info!(
-                        connection_id = %connection_id,
-                        active_connections,
-                        total_connections,
-                        "Connection metrics updated"
-                    );
-                    // Clone configuration values for this connection
-                    let endpoint = endpoint.clone();
-                    let namespace = ns.clone();
-                    let database = db.clone();
-                    let user = user.clone();
-                    let pass = pass.clone();
-                    // Spawn a new async task to handle this client connection
-                    tokio::spawn(async move {
-                        let _span = tracing::info_span!("handle_tcp_connection", connection_id = %connection_id);
-                        let _enter = _span.enter();
-
-                        debug!("Handling TCP connection");
-                        let service = SurrealService::with_config(
-                            connection_id.clone(),
-                            endpoint,
-                            namespace,
-                            database,
-                            user,
-                            pass,
+                // We are running as a Unix socket
+                (None, Some(socket_path)) => {
+                    // Initialize structured logging and metrics
+                    init_logging_and_metrics(false);
+                    // Get the specified socket path
+                    let socket_path = Path::new(socket_path);
+                    // Remove existing socket file if it exists
+                    if socket_path.exists() {
+                        fs::remove_file(socket_path).await?;
+                        info!(
+                            "Removed existing Unix socket file: {}",
+                            socket_path.display()
                         );
-                        // Initialize the connection using startup configuration only if endpoint is specified
-                        if let Err(e) = service.initialize_connection().await {
-                            error!(
-                                connection_id = %service.connection_id,
-                                error = %e,
-                                "Failed to initialize database connection"
+                    }
+                    // Create a Unix domain socket listener at the specified path
+                    let listener = UnixListener::bind(socket_path)?;
+                    // Log that the server is listening on the Unix socket
+                    info!(
+                        socket_path = %socket_path.display(),
+                        "Starting MCP server in Unix socket mode"
+                    );
+                    // Main server loop for Unix socket connections
+                    loop {
+                        // Accept incoming connections from the Unix socket
+                        let (stream, addr) = listener.accept().await?;
+                        // Generate a connection ID for this connection
+                        let connection_id = generate_connection_id();
+                        // Output debugging information
+                        info!(
+                            connection_id = %connection_id,
+                            peer_addr = ?addr,
+                            "New Unix socket connection accepted"
+                        );
+                        // Update connection metrics
+                        let active_connections =
+                            ACTIVE_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+                        let total_connections =
+                            TOTAL_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+                        gauge!("surrealmcp.active_connections", active_connections as f64);
+                        counter!("surrealmcp.total_connections", 1);
+                        // Output debugging information
+                        info!(
+                            connection_id = %connection_id,
+                            active_connections,
+                            total_connections,
+                            "Connection metrics updated"
+                        );
+                        // Clone configuration values for this connection
+                        let endpoint = endpoint.clone();
+                        let namespace = ns.clone();
+                        let database = db.clone();
+                        let user = user.clone();
+                        let pass = pass.clone();
+                        // Spawn a new async task to handle this client connection
+                        tokio::spawn(async move {
+                            let _span = tracing::info_span!("handle_unix_connection", connection_id = %connection_id);
+                            let _enter = _span.enter();
+
+                            debug!("Handling Unix socket connection");
+                            let service = SurrealService::with_config(
+                                connection_id.clone(),
+                                endpoint,
+                                namespace,
+                                database,
+                                user,
+                                pass,
                             );
-                        }
-                        // Create an MCP server instance for this connection
-                        match rmcp::serve_server(service.clone(), stream).await {
-                            Ok(server) => {
-                                // Output debugging information
-                                info!(
-                                    connection_id = %service.connection_id,
-                                    "MCP server instance creation succeeded"
-                                );
-                                // Wait for the server to complete its work
-                                let _ = server.waiting().await;
-                                // Update metrics when connection closes
-                                let active_connections =
-                                    ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
-                                gauge!("surrealmcp.active_connections", active_connections as f64);
-                                // Output debugging information
-                                info!(
-                                    connection_id = %service.connection_id,
-                                    connection_time = %format_duration(Instant::now() - service.connected_at),
-                                    active_connections,
-                                    "Connection closed"
-                                );
-                            }
-                            Err(e) => {
-                                // Output debugging information
+                            // Initialize the connection using startup configuration only if endpoint is specified
+                            if let Err(e) = service.initialize_connection().await {
                                 error!(
                                     connection_id = %service.connection_id,
                                     error = %e,
-                                    "MCP server instance creation failed"
+                                    "Failed to initialize database connection"
                                 );
-                                // Update metrics when connection fails
-                                let active_connections =
-                                    ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
-                                gauge!("surrealmcp.active_connections", active_connections as f64);
                             }
-                        }
-                    });
+                            // Create an MCP server instance for this connection
+                            match rmcp::serve_server(service.clone(), stream).await {
+                                Ok(server) => {
+                                    info!(
+                                        connection_id = %service.connection_id,
+                                        "MCP server instance creation succeeded"
+                                    );
+                                    // Wait for the server to complete its work
+                                    let _ = server.waiting().await;
+                                    // Update metrics when connection closes
+                                    let active_connections =
+                                        ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+                                    gauge!(
+                                        "surrealmcp.active_connections",
+                                        active_connections as f64
+                                    );
+                                    // Output debugging information
+                                    info!(
+                                        connection_id = %service.connection_id,
+                                        connection_time = %format_duration(Instant::now() - service.connected_at),
+                                        active_connections,
+                                        "Connection closed"
+                                    );
+                                }
+                                Err(e) => {
+                                    // Output debugging information
+                                    error!(
+                                        connection_id = %service.connection_id,
+                                        error = %e,
+                                        "MCP server instance creation failed"
+                                    );
+                                    // Update metrics when connection fails
+                                    let active_connections =
+                                        ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+                                    gauge!(
+                                        "surrealmcp.active_connections",
+                                        active_connections as f64
+                                    );
+                                }
+                            }
+                        });
+                    }
+                }
+                // We are running as a HTTP server
+                (Some(bind_address), None) => {
+                    // Initialize structured logging and metrics
+                    init_logging_and_metrics(false);
+                    // Output debugging information
+                    info!(
+                        bind_address = %bind_address,
+                        "Starting MCP server in HTTP mode"
+                    );
+                    // Create a TCP listener bound to the specified address and port
+                    let listener = TcpListener::bind(bind_address).await?;
+                    // Main server loop for TCP connections
+                    loop {
+                        // Accept incoming TCP connections
+                        let (stream, addr) = listener.accept().await?;
+                        // Generate a connection ID for this connection
+                        let connection_id = generate_connection_id();
+                        // Output debugging information
+                        info!(
+                            connection_id = %connection_id,
+                            peer_addr = %addr,
+                            "New TCP connection accepted"
+                        );
+                        // Update connection metrics
+                        let active_connections =
+                            ACTIVE_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+                        let total_connections =
+                            TOTAL_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+                        gauge!("surrealmcp.active_connections", active_connections as f64);
+                        counter!("surrealmcp.total_connections", 1);
+                        // Output debugging information
+                        info!(
+                            connection_id = %connection_id,
+                            active_connections,
+                            total_connections,
+                            "Connection metrics updated"
+                        );
+                        // Clone configuration values for this connection
+                        let endpoint = endpoint.clone();
+                        let namespace = ns.clone();
+                        let database = db.clone();
+                        let user = user.clone();
+                        let pass = pass.clone();
+                        // Spawn a new async task to handle this client connection
+                        tokio::spawn(async move {
+                            let _span = tracing::info_span!("handle_tcp_connection", connection_id = %connection_id);
+                            let _enter = _span.enter();
+
+                            debug!("Handling TCP connection");
+                            let service = SurrealService::with_config(
+                                connection_id.clone(),
+                                endpoint,
+                                namespace,
+                                database,
+                                user,
+                                pass,
+                            );
+                            // Initialize the connection using startup configuration only if endpoint is specified
+                            if let Err(e) = service.initialize_connection().await {
+                                error!(
+                                    connection_id = %service.connection_id,
+                                    error = %e,
+                                    "Failed to initialize database connection"
+                                );
+                            }
+                            // Create an MCP server instance for this connection
+                            match rmcp::serve_server(service.clone(), stream).await {
+                                Ok(server) => {
+                                    // Output debugging information
+                                    info!(
+                                        connection_id = %service.connection_id,
+                                        "MCP server instance creation succeeded"
+                                    );
+                                    // Wait for the server to complete its work
+                                    let _ = server.waiting().await;
+                                    // Update metrics when connection closes
+                                    let active_connections =
+                                        ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+                                    gauge!(
+                                        "surrealmcp.active_connections",
+                                        active_connections as f64
+                                    );
+                                    // Output debugging information
+                                    info!(
+                                        connection_id = %service.connection_id,
+                                        connection_time = %format_duration(Instant::now() - service.connected_at),
+                                        active_connections,
+                                        "Connection closed"
+                                    );
+                                }
+                                Err(e) => {
+                                    // Output debugging information
+                                    error!(
+                                        connection_id = %service.connection_id,
+                                        error = %e,
+                                        "MCP server instance creation failed"
+                                    );
+                                    // Update metrics when connection fails
+                                    let active_connections =
+                                        ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+                                    gauge!(
+                                        "surrealmcp.active_connections",
+                                        active_connections as f64
+                                    );
+                                }
+                            }
+                        });
+                    }
                 }
             }
         }
