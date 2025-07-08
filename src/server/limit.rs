@@ -1,6 +1,7 @@
 use axum::extract::Request;
 use axum::http::{Response, StatusCode};
 use governor::middleware::NoOpMiddleware;
+use metrics::counter;
 use std::sync::Arc;
 use tower_governor::{
     GovernorLayer, errors::GovernorError, governor::GovernorConfigBuilder,
@@ -99,7 +100,12 @@ pub fn create_rate_limit_layer(
         .burst_size(burst)
         .key_extractor(RobustIpKeyExtractor)
         .error_handler(|e| {
-            warn!("Rate limit exceeded: {}", e);
+            // Output debugging information
+            warn!("Rate limit exceeded: {e}");
+            // Increment rate limit error metrics
+            counter!("surrealmcp.total_errors", 1);
+            counter!("surrealmcp.total_rate_limit_errors", 1);
+            // Return the error response
             Response::builder()
                 .status(StatusCode::TOO_MANY_REQUESTS)
                 .body("Rate limit exceeded".into())

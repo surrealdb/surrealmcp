@@ -239,6 +239,7 @@ Examples:
                     Ok(res) => {
                         // Get the duration of the query
                         let duration = start_time.elapsed();
+                        // Format the result as text
                         let text = format!("{res:?}");
                         // Output debugging information
                         info!(
@@ -251,6 +252,7 @@ Examples:
                         );
                         // Update the total queries metric
                         counter!("surrealmcp.total_queries", 1);
+                        // Update the query duration metric
                         histogram!("surrealmcp.query_duration_ms", duration.as_millis() as f64);
                         // Return success message
                         Ok(CallToolResult::success(vec![Content::text(text)]))
@@ -267,8 +269,10 @@ Examples:
                             error = %e,
                             "Query execution failed"
                         );
-                        // Update the query errors metric
-                        counter!("surrealmcp.query_errors", 1);
+                        // Update the error count metrics
+                        counter!("surrealmcp.total_errors", 1);
+                        counter!("surrealmcp.total_query_errors", 1);
+                        // Update the query duration metric
                         histogram!("surrealmcp.query_duration_ms", duration.as_millis() as f64);
                         // Return error message
                         Err(McpError::internal_error(e.to_string(), None))
@@ -284,7 +288,8 @@ Examples:
                     "Query attempted without database connection"
                 );
                 // Update the query errors metric
-                counter!("surrealmcp.query_errors", 1);
+                counter!("surrealmcp.total_errors", 1);
+                counter!("surrealmcp.total_query_errors", 1);
                 // Return error message
                 Err(McpError::internal_error(
                     "Not connected to any SurrealDB endpoint. Use connect_endpoint first."
@@ -720,8 +725,8 @@ Examples:
                     error = %e,
                     "Failed to connect to SurrealDB endpoint"
                 );
-                // Increment connection error metric
-                counter!("surrealmcp.connection_errors", 1);
+                // Increment error metrics
+                counter!("surrealmcp.total_errors", 1);
                 // Return error message
                 Err(McpError::internal_error(
                     format!("Failed to connect to endpoint '{endpoint}': {e}"),
