@@ -527,7 +527,7 @@ Examples:
     async fn select(&self, params: Parameters<SelectParams>) -> Result<CallToolResult, McpError> {
         let SelectParams { thing } = params.0;
         debug!("Selecting records: {thing}");
-        let query = format!("SELECT * FROM{thing}");
+        let query = format!("SELECT * FROM {thing}");
         self.query(Parameters(QueryParams { query })).await
     }
 
