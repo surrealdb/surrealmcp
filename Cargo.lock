@@ -4406,6 +4406,7 @@ dependencies = [
  "axum-extra",
  "clap",
  "governor",
+ "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
  "rand 0.8.5",

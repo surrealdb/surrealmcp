@@ -1,20 +1,22 @@
 use anyhow::{Result, anyhow};
-use axum::Router;
+use axum::{Json, Router, routing::get};
 use metrics::{counter, gauge};
 use rmcp::transport::{
     StreamableHttpServerConfig,
     streamable_http_server::{session::local::LocalSessionManager, tower::StreamableHttpService},
 };
+use serde_json::json;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::fs;
 use tokio::net::{TcpListener, UnixListener};
-use tower_http::trace::TraceLayer;
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{debug, error, info, warn};
 
 use crate::logs::init_logging_and_metrics;
+use crate::server::auth::require_bearer_auth;
 use crate::server::limit::create_rate_limit_layer;
 use crate::tools::SurrealService;
 use crate::utils::{format_duration, generate_connection_id};
@@ -27,10 +29,12 @@ pub struct ServerConfig {
     pub db: Option<String>,
     pub user: Option<String>,
     pub pass: Option<String>,
+    pub server_url: String,
     pub bind_address: Option<String>,
     pub socket_path: Option<String>,
     pub rate_limit_rps: u32,
     pub rate_limit_burst: u32,
+    pub cloud_auth_server: String,
 }
 
 // Global metrics
@@ -45,10 +49,12 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
         namespace = config.ns.as_deref(),
         database = config.db.as_deref(),
         username = config.user.as_deref(),
+        server_url = config.server_url,
         bind_address = config.bind_address.as_deref().unwrap_or("N/A"),
         socket_path = config.socket_path.as_deref().unwrap_or("N/A"),
         rate_limit_rps = config.rate_limit_rps,
         rate_limit_burst = config.rate_limit_burst,
+        cloud_auth_server = config.cloud_auth_server,
         "Server configuration loaded"
     );
     match (config.bind_address.is_some(), config.socket_path.is_some()) {
@@ -249,9 +255,11 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
         db,
         user,
         pass,
+        server_url,
         bind_address,
         rate_limit_rps,
         rate_limit_burst,
+        cloud_auth_server,
         ..
     } = config;
     // Get the specified bind address
@@ -260,6 +268,7 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
     init_logging_and_metrics(false);
     // Output debugging information
     info!(
+        server_url = %server_url,
         bind_address = %bind_address,
         rate_limit_rps = rate_limit_rps,
         rate_limit_burst = rate_limit_burst,
@@ -269,10 +278,29 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
     let listener = TcpListener::bind(&bind_address)
         .await
         .map_err(|e| anyhow!("Failed to bind to address {bind_address}: {e}"))?;
+    // List servers for authentication discovery
+    let auth_servers = Json(json!({
+        "resource": server_url,
+        "authorization_servers": [cloud_auth_server],
+        "bearer_methods_supported": ["header"]
+    }));
+    // Create CORS layer for /.well-known endpoints
+    let cors_layer = CorsLayer::new()
+        .allow_origin(tower_http::cors::Any)
+        .allow_methods([axum::http::Method::GET, axum::http::Method::OPTIONS])
+        .allow_headers([
+            axum::http::header::AUTHORIZATION,
+            axum::http::header::CONTENT_TYPE,
+        ])
+        .allow_credentials(false);
+    // Create a service for /.well-known endpoints with CORS
+    let well_known_service = Router::new()
+        .route("/oauth-protected-resource", get(auth_servers))
+        .layer(cors_layer);
     // Create a session manager for the HTTP server
     let session_manager = Arc::new(LocalSessionManager::default());
     // Create a new SurrealDB service instance for the HTTP server
-    let service = StreamableHttpService::new(
+    let mcp_service = StreamableHttpService::new(
         move || {
             Ok(SurrealService::with_config(
                 generate_connection_id(),
@@ -329,9 +357,11 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
         );
     // Create an Axum router with rate limiting and tracing at /mcp
     let router = Router::new()
-        .nest_service("/mcp", service)
+        .nest_service("/.well-known", well_known_service)
+        .nest_service("/mcp", mcp_service)
         .layer(trace_layer)
-        .layer(rate_limit_layer);
+        .layer(rate_limit_layer)
+        .layer(axum::middleware::from_fn(require_bearer_auth));
     // Serve the Axum router over HTTP
     axum::serve(listener, router)
         .with_graceful_shutdown(async {

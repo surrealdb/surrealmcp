@@ -40,5 +40,19 @@ pub enum Commands {
         /// Rate limit burst size (default: 200)
         #[arg(long, env = "SURREAL_MCP_RATE_LIMIT_BURST", default_value = "200")]
         rate_limit_burst: u32,
+        /// The URL address that the MCP server is accessible at
+        #[arg(
+            long,
+            env = "SURREAL_MCP_SERVER_URL",
+            default_value = "https://mcp.surrealdb.com"
+        )]
+        server_url: String,
+        /// The SurrealDB Cloud authentication server URL
+        #[arg(
+            long,
+            env = "SURREAL_CLOUD_AUTH_SERVER",
+            default_value = "https://auth.surrealdb.com"
+        )]
+        cloud_auth_server: String,
     },
 }

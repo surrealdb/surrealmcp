@@ -21,21 +21,26 @@ async fn main() -> Result<()> {
             db,
             user,
             pass,
+            server_url,
             bind_address,
             socket_path,
             rate_limit_rps,
             rate_limit_burst,
+            cloud_auth_server,
         } => {
+            // Create the server config
             let config = ServerConfig {
                 endpoint,
                 ns,
                 db,
                 user,
                 pass,
+                server_url,
                 bind_address,
                 socket_path,
                 rate_limit_rps,
                 rate_limit_burst,
+                cloud_auth_server,
             };
             server::start_server(config).await
         }
