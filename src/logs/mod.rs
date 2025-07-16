@@ -4,14 +4,14 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 
 /// Initialize structured logging and metrics collection
 pub fn init_logging_and_metrics(stdio: bool) {
-    // Set up environment filter for log levels
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("surrealmcp=trace,rmcp=warn"));
     // Check if we are running in stdio mode
     if stdio {
+        // Set up environment filter for log levels
+        let filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new("surrealmcp=error,rmcp=error"));
         // Initialize tracing subscriber with stderr output
         tracing_subscriber::registry()
-            .with(EnvFilter::builder().parse(env_filter.to_string()).unwrap())
+            .with(filter)
             .with(
                 tracing_subscriber::fmt::layer()
                     .with_target(true)
@@ -19,9 +19,12 @@ pub fn init_logging_and_metrics(stdio: bool) {
             )
             .init();
     } else {
+        // Set up environment filter for log levels
+        let filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new("surrealmcp=trace,rmcp=warn"));
         // Initialize tracing subscriber with stdout output
         tracing_subscriber::registry()
-            .with(EnvFilter::builder().parse(env_filter.to_string()).unwrap())
+            .with(filter)
             .with(
                 tracing_subscriber::fmt::layer()
                     .with_target(true)
