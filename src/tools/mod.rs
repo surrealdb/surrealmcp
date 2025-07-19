@@ -105,6 +105,12 @@ pub struct ConnectParams {
     pub password: Option<String>,
 }
 
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct UseNamespaceParams {
+    #[schemars(description = "The namespace to switch to.")]
+    pub namespace: String,
+}
+
 #[derive(Clone)]
 pub struct SurrealService {
     /// The SurrealDB client instance to use for database operations
@@ -774,6 +780,119 @@ Examples:
                 // Return error message
                 Err(McpError::internal_error(
                     format!("Failed to connect to endpoint '{endpoint}': {e}"),
+                    None,
+                ))
+            }
+        }
+    }
+
+    /// Change the namespace on the currently connected endpoint.
+    ///
+    /// This function allows you to switch to a different namespace on the currently
+    /// connected SurrealDB endpoint. The namespace change will apply to all subsequent
+    /// queries until you change it again or reconnect to a different endpoint.
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to switch to
+    #[tool(description = r#"
+Change the namespace on the currently connected endpoint.
+
+This function allows you to switch to a different namespace on the currently connected 
+SurrealDB endpoint. The namespace change will apply to all subsequent queries until 
+you change it again or reconnect to a different endpoint.
+
+This is useful when you want to:
+- Organize data into different logical groups
+- Switch between development, staging, and production environments
+- Work with multiple applications using the same SurrealDB instance
+
+Examples:
+- use_namespace('development')
+- use_namespace('production')
+- use_namespace('analytics')
+"#)]
+    pub async fn use_namespace(
+        &self,
+        params: Parameters<UseNamespaceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let UseNamespaceParams { namespace } = params.0;
+        let start_time = Instant::now();
+        // Output debugging information
+        info!(
+            connection_id = %self.connection_id,
+            namespace = %namespace,
+            "Attempting to change namespace"
+        );
+        // Check if namespace is restricted by startup configuration
+        if let Some(configured_namespace) = &self.namespace {
+            if namespace != *configured_namespace {
+                // Output debugging information
+                warn!(
+                    connection_id = %self.connection_id,
+                    requested_namespace = %namespace,
+                    configured_namespace = %configured_namespace,
+                    "Namespace change rejected: namespace not allowed by server configuration"
+                );
+                // Return error message
+                return Err(McpError::internal_error(
+                    format!(
+                        "Cannot use namespace '{namespace}'. Server is configured to only use namespace '{configured_namespace}'"
+                    ),
+                    None,
+                ));
+            }
+        }
+        // Lock the database connection
+        let db_guard = self.db.lock().await;
+        // Match the database connection
+        match &*db_guard {
+            Some(db) => {
+                // Use the specified namespace
+                match db.use_ns(&namespace).await {
+                    Ok(_) => {
+                        let duration = start_time.elapsed();
+                        // Output debugging information
+                        info!(
+                            connection_id = %self.connection_id,
+                            namespace = %namespace,
+                            duration_ms = duration.as_millis(),
+                            "Successfully changed namespace"
+                        );
+                        // Return success message
+                        let msg = format!("Successfully switched to namespace '{namespace}'");
+                        Ok(CallToolResult::success(vec![Content::text(msg)]))
+                    }
+                    Err(e) => {
+                        let duration = start_time.elapsed();
+                        // Output debugging information
+                        error!(
+                            connection_id = %self.connection_id,
+                            namespace = %namespace,
+                            duration_ms = duration.as_millis(),
+                            error = %e,
+                            "Failed to change namespace"
+                        );
+                        // Increment error metrics
+                        counter!("surrealmcp.total_errors", 1);
+                        // Return error message
+                        Err(McpError::internal_error(
+                            format!("Failed to change namespace to '{namespace}': {e}"),
+                            None,
+                        ))
+                    }
+                }
+            }
+            None => {
+                // Output debugging information
+                warn!(
+                    connection_id = %self.connection_id,
+                    namespace = %namespace,
+                    "Namespace change attempted without database connection"
+                );
+                // Return error message
+                Err(McpError::internal_error(
+                    "Not connected to any SurrealDB endpoint. Use connect_endpoint first."
+                        .to_string(),
                     None,
                 ))
             }
