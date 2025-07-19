@@ -25,6 +25,8 @@ static QUERY_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub struct QueryParams {
     #[schemars(description = "The SurrealQL query string")]
     pub query: String,
+    #[schemars(description = "Optional parameters to bind to the query")]
+    pub parameters: Option<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -228,6 +230,10 @@ is executed on the configured database connection as-is without any preprocessin
 or validation. Use this for complex queries, custom logic, or operations not covered 
 by the convenience methods.
 
+For security, you can use parameterized queries to prevent SQL injection by providing 
+parameters that will be safely bound to the query. Use $param_name syntax in your query 
+and provide the parameters in the parameters field.
+
 The query results are returned as text, or an error occurs if the query execution fails.
 
 Examples:
@@ -236,10 +242,17 @@ Examples:
 - UPDATE person SET age += 1 WHERE age < 30
 - DELETE person WHERE age < 18
 - RELATE person:john->knows->person:jane
+
+Parameterized query examples:
+- Query: "SELECT * FROM person WHERE age > $min_age AND name CONTAINS $name_filter"
+  Parameters: {"min_age": 25, "name_filter": "John"}
+- Query: "CREATE person:$id CONTENT {name: $name, age: $age}"
+  Parameters: {"id": "john", "name": "John Doe", "age": 30}
 "#)]
     pub async fn query(&self, params: Parameters<QueryParams>) -> Result<CallToolResult, McpError> {
         let QueryParams {
             query: query_string,
+            parameters,
         } = params.0;
         let start_time = Instant::now();
         let query_id = QUERY_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -255,7 +268,16 @@ Examples:
         // Match the database connection
         match &*db_guard {
             Some(db) => {
-                match db.query(&query_string).await {
+                // Build the query string
+                let mut query_builder = db.query(&query_string);
+                // Bind any parameters
+                if let Some(params) = parameters {
+                    for (key, value) in params {
+                        query_builder = query_builder.bind((key, value));
+                    }
+                }
+                // Execute the query
+                match query_builder.await {
                     Ok(res) => {
                         // Get the duration of the query
                         let duration = start_time.elapsed();
@@ -320,44 +342,6 @@ Examples:
         }
     }
 
-    /// Create a new record in the specified table with the provided data.
-    ///
-    /// This function executes a SurrealDB CREATE statement to insert a new record
-    /// into the specified table. The data is provided as a JSON value and will be
-    /// used as the content for the new record. The table parameter can be either
-    /// a table name or a specific record ID in the format "table:id".
-    ///
-    /// # Arguments
-    /// * `table` - The table name or record ID where the new record will be created
-    /// * `data` - The JSON data to be inserted as the record content
-    #[tool(description = r#"
-Create a new record in the specified table with the provided data.
-
-This function executes a SurrealDB CREATE statement to insert a new record into the 
-specified table. The data is provided as a JSON value and will be used as the content 
-for the new record.
-
-The table parameter can be either:
-- A table name (SurrealDB will generate a unique ID)
-- A specific record ID in the format 'table:id'
-
-This is useful for creating users, articles, products, or any other entities in your database.
-
-Examples:
-- create('person', {"name": "John", "age": 30})
-- create('person:john', {"name": "John", "age": 30})
-- create('article', {"title": "SurrealDB Guide", "content": "..."})
-"#)]
-    pub async fn create(
-        &self,
-        params: Parameters<CreateParams>,
-    ) -> Result<CallToolResult, McpError> {
-        let CreateParams { table, data } = params.0;
-        debug!("Creating record in table: {table}");
-        let query = format!("CREATE {table} CONTENT {data}");
-        self.query(Parameters(QueryParams { query })).await
-    }
-
     /// Execute a SurrealDB SELECT statement to retrieve records from the database.
     ///
     /// This function executes a SurrealDB SELECT statement to query records from
@@ -397,7 +381,53 @@ Examples:
         let SelectParams { thing } = params.0;
         debug!("Selecting records: {thing}");
         let query = format!("SELECT * FROM {thing}");
-        self.query(Parameters(QueryParams { query })).await
+        self.query(Parameters(QueryParams {
+            query,
+            parameters: None,
+        }))
+        .await
+    }
+
+    /// Create a new record in the specified table with the provided data.
+    ///
+    /// This function executes a SurrealDB CREATE statement to insert a new record
+    /// into the specified table. The data is provided as a JSON value and will be
+    /// used as the content for the new record. The table parameter can be either
+    /// a table name or a specific record ID in the format "table:id".
+    ///
+    /// # Arguments
+    /// * `table` - The table name or record ID where the new record will be created
+    /// * `data` - The JSON data to be inserted as the record content
+    #[tool(description = r#"
+Create a new record in the specified table with the provided data.
+
+This function executes a SurrealDB CREATE statement to insert a new record into the 
+specified table. The data is provided as a JSON value and will be used as the content 
+for the new record.
+
+The table parameter can be either:
+- A table name (SurrealDB will generate a unique ID)
+- A specific record ID in the format 'table:id'
+
+This is useful for creating users, articles, products, or any other entities in your database.
+
+Examples:
+- create('person', {"name": "John", "age": 30})
+- create('person:john', {"name": "John", "age": 30})
+- create('article', {"title": "SurrealDB Guide", "content": "..."})
+"#)]
+    pub async fn create(
+        &self,
+        params: Parameters<CreateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let CreateParams { table, data } = params.0;
+        debug!("Creating record in table: {table}");
+        let query = format!("CREATE {table} CONTENT {data}");
+        self.query(Parameters(QueryParams {
+            query,
+            parameters: None,
+        }))
+        .await
     }
 
     /// Execute a SurrealDB UPDATE statement to modify records in the database.
@@ -451,7 +481,11 @@ Examples:
             _ => format!("UPDATE {thing} CONTENT {data}"), // replace is default
         };
 
-        self.query(Parameters(QueryParams { query })).await
+        self.query(Parameters(QueryParams {
+            query,
+            parameters: None,
+        }))
+        .await
     }
 
     /// Execute a SurrealDB DELETE statement to remove records from the database.
@@ -491,7 +525,11 @@ Examples:
         let DeleteParams { thing } = params.0;
         debug!("Deleting records: {thing}");
         let query = format!("DELETE {thing}");
-        self.query(Parameters(QueryParams { query })).await
+        self.query(Parameters(QueryParams {
+            query,
+            parameters: None,
+        }))
+        .await
     }
 
     /// Create a relationship between two records in the database.
@@ -544,7 +582,11 @@ Examples:
             None => format!("RELATE {from_id}->{relationship_type}->{to_id}"),
         };
 
-        self.query(Parameters(QueryParams { query })).await
+        self.query(Parameters(QueryParams {
+            query,
+            parameters: None,
+        }))
+        .await
     }
 
     #[tool(description = "List SurrealDB Cloud organizations")]

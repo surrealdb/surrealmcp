@@ -85,10 +85,11 @@ Use `relate` to create graph relationships:
 ## Best practices
 
 1. **Use specific record IDs** when you know them for better performance
-2. **Use the raw query tool** for complex operations not covered by convenience functions
-3. **Use merge/patch modes** when updating records to preserve existing data
-4. **Create relationships** to model graph data and enable complex queries
-5. **Use table names** in select/delete when you want to operate on all records
+2. **Use parameterized queries** to prevent SQL injection when dealing with user input
+3. **Use the raw query tool** for complex operations not covered by convenience functions
+4. **Use merge/patch modes** when updating records to preserve existing data
+5. **Create relationships** to model graph data and enable complex queries
+6. **Use table names** in select/delete when you want to operate on all records
 
 ## Example workflows
 
