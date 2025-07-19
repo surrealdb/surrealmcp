@@ -111,6 +111,12 @@ pub struct UseNamespaceParams {
     pub namespace: String,
 }
 
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct UseDatabaseParams {
+    #[schemars(description = "The database to switch to.")]
+    pub database: String,
+}
+
 #[derive(Clone)]
 pub struct SurrealService {
     /// The SurrealDB client instance to use for database operations
@@ -888,6 +894,119 @@ Examples:
                     connection_id = %self.connection_id,
                     namespace = %namespace,
                     "Namespace change attempted without database connection"
+                );
+                // Return error message
+                Err(McpError::internal_error(
+                    "Not connected to any SurrealDB endpoint. Use connect_endpoint first."
+                        .to_string(),
+                    None,
+                ))
+            }
+        }
+    }
+
+    /// Change the database on the currently connected endpoint.
+    ///
+    /// This function allows you to switch to a different database on the currently
+    /// connected SurrealDB endpoint. The database change will apply to all subsequent
+    /// queries until you change it again or reconnect to a different endpoint.
+    ///
+    /// # Arguments
+    /// * `database` - The database to switch to
+    #[tool(description = r#"
+Change the database on the currently connected endpoint.
+
+This function allows you to switch to a different database on the currently connected 
+SurrealDB endpoint. The database change will apply to all subsequent queries until 
+you change it again or reconnect to a different endpoint.
+
+This is useful when you want to:
+- Switch between different databases within the same namespace
+- Organize data into different logical groups
+- Work with multiple applications using the same SurrealDB instance
+
+Examples:
+- use_database('users')
+- use_database('analytics')
+- use_database('events')
+"#)]
+    pub async fn use_database(
+        &self,
+        params: Parameters<UseDatabaseParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let UseDatabaseParams { database } = params.0;
+        let start_time = Instant::now();
+        // Output debugging information
+        info!(
+            connection_id = %self.connection_id,
+            database = %database,
+            "Attempting to change database"
+        );
+        // Check if database is restricted by startup configuration
+        if let Some(configured_database) = &self.database {
+            if database != *configured_database {
+                // Output debugging information
+                warn!(
+                    connection_id = %self.connection_id,
+                    requested_database = %database,
+                    configured_database = %configured_database,
+                    "Database change rejected: database not allowed by server configuration"
+                );
+                // Return error message
+                return Err(McpError::internal_error(
+                    format!(
+                        "Cannot use database '{database}'. Server is configured to only use database '{configured_database}'"
+                    ),
+                    None,
+                ));
+            }
+        }
+        // Lock the database connection
+        let db_guard = self.db.lock().await;
+        // Match the database connection
+        match &*db_guard {
+            Some(db) => {
+                // Use the specified database
+                match db.use_db(&database).await {
+                    Ok(_) => {
+                        let duration = start_time.elapsed();
+                        // Output debugging information
+                        info!(
+                            connection_id = %self.connection_id,
+                            database = %database,
+                            duration_ms = duration.as_millis(),
+                            "Successfully changed database"
+                        );
+                        // Return success message
+                        let msg = format!("Successfully switched to database '{database}'");
+                        Ok(CallToolResult::success(vec![Content::text(msg)]))
+                    }
+                    Err(e) => {
+                        let duration = start_time.elapsed();
+                        // Output debugging information
+                        error!(
+                            connection_id = %self.connection_id,
+                            database = %database,
+                            duration_ms = duration.as_millis(),
+                            error = %e,
+                            "Failed to change database"
+                        );
+                        // Increment error metrics
+                        counter!("surrealmcp.total_errors", 1);
+                        // Return error message
+                        Err(McpError::internal_error(
+                            format!("Failed to change database to '{database}': {e}"),
+                            None,
+                        ))
+                    }
+                }
+            }
+            None => {
+                // Output debugging information
+                warn!(
+                    connection_id = %self.connection_id,
+                    database = %database,
+                    "Database change attempted without database connection"
                 );
                 // Return error message
                 Err(McpError::internal_error(
