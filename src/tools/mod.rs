@@ -9,14 +9,16 @@ use rmcp::{
     tool, tool_handler, tool_router,
 };
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
-use surrealdb::{Surreal, engine::any::Any};
+use surrealdb::{Surreal, Value, engine::any::Any};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 use crate::db;
+use crate::utils::convert_to_surreal_value;
 
 // Global metrics
 static QUERY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -53,10 +55,8 @@ pub struct SelectParams {
     pub limit_clause: Option<String>,
     #[schemars(description = "Optional START clause to specify the pagination position.")]
     pub start_clause: Option<String>,
-    #[schemars(
-        description = "Optional parameters to bind to the query (for use in WHERE clauses, etc.)."
-    )]
-    pub parameters: Option<std::collections::HashMap<String, serde_json::Value>>,
+    #[schemars(description = "Optional parameters to bind to the query.")]
+    pub parameters: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -270,92 +270,20 @@ Parameterized query examples:
             query: query_string,
             parameters,
         } = params.0;
-        let start_time = Instant::now();
-        let query_id = QUERY_COUNTER.fetch_add(1, Ordering::SeqCst);
-        // Output debugging information
-        debug!(
-            connection_id = %self.connection_id,
-            query_id,
-            query = %query_string,
-            "Executing SurrealQL query"
-        );
-        // Lock the database connection
-        let db_guard = self.db.lock().await;
-        // Match the database connection
-        match &*db_guard {
-            Some(db) => {
-                // Build the query string
-                let mut query_builder = db.query(&query_string);
-                // Bind any parameters
-                if let Some(params) = parameters {
-                    for (key, value) in params {
-                        query_builder = query_builder.bind((key, value));
-                    }
-                }
-                // Execute the query
-                match query_builder.await {
-                    Ok(res) => {
-                        // Get the duration of the query
-                        let duration = start_time.elapsed();
-                        // Format the result as text
-                        let text = format!("{res:?}");
-                        // Output debugging information
-                        info!(
-                            connection_id = %self.connection_id,
-                            query_id,
-                            query = %query_string,
-                            duration_ms = duration.as_millis(),
-                            result_length = text.len(),
-                            "Query execution succeeded"
-                        );
-                        // Update the total queries metric
-                        counter!("surrealmcp.total_queries", 1);
-                        // Update the query duration metric
-                        histogram!("surrealmcp.query_duration_ms", duration.as_millis() as f64);
-                        // Return success message
-                        Ok(CallToolResult::success(vec![Content::text(text)]))
-                    }
-                    Err(e) => {
-                        // Get the duration of the query
-                        let duration = start_time.elapsed();
-                        // Output debugging information
-                        error!(
-                            connection_id = %self.connection_id,
-                            query_id,
-                            query = %query_string,
-                            duration_ms = duration.as_millis(),
-                            error = %e,
-                            "Query execution failed"
-                        );
-                        // Update the error count metrics
-                        counter!("surrealmcp.total_errors", 1);
-                        counter!("surrealmcp.total_query_errors", 1);
-                        // Update the query duration metric
-                        histogram!("surrealmcp.query_duration_ms", duration.as_millis() as f64);
-                        // Return error message
-                        Err(McpError::internal_error(e.to_string(), None))
-                    }
-                }
+        // Convert tool parameters to SurrealQL parameters
+        let parameters = if let Some(params) = parameters {
+            let mut converted = HashMap::new();
+            for (key, val) in params {
+                let surreal_val = convert_to_surreal_value(val, &key)
+                    .map_err(|e| McpError::internal_error(e, None))?;
+                converted.insert(key, surreal_val);
             }
-            None => {
-                // Output debugging information
-                warn!(
-                    connection_id = %self.connection_id,
-                    query_id,
-                    query = %query_string,
-                    "Query attempted without database connection"
-                );
-                // Update the query errors metric
-                counter!("surrealmcp.total_errors", 1);
-                counter!("surrealmcp.total_query_errors", 1);
-                // Return error message
-                Err(McpError::internal_error(
-                    "Not connected to any SurrealDB endpoint. Use connect_endpoint first."
-                        .to_string(),
-                    None,
-                ))
-            }
-        }
+            Some(converted)
+        } else {
+            None
+        };
+        // Use the internal query function
+        self.query_internal(query_string, parameters).await
     }
 
     /// Execute a SurrealDB SELECT statement to retrieve records from the database.
@@ -433,18 +361,24 @@ Examples:
         if let Some(v) = start_clause {
             query.push_str(&format!(" START AT {v}"));
         }
-        // Get the user-provided parameters
-        let mut parameters = parameters.unwrap_or_default();
+        // Create parameters with native SurrealDB types
+        let mut surreal_parameters = HashMap::new();
+        // Add user-provided parameters if any
+        if let Some(params) = parameters {
+            for (key, val) in params {
+                let val = convert_to_surreal_value(val, &key)
+                    .map_err(|e| McpError::internal_error(e, None))?;
+                surreal_parameters.insert(key, val);
+            }
+        }
         // Add the table name as a parameter
-        parameters.insert("table".to_string(), serde_json::Value::String(table));
+        let table_value = convert_to_surreal_value(table, "table")
+            .map_err(|e| McpError::internal_error(e, None))?;
+        surreal_parameters.insert("table".to_string(), table_value);
         // Output debugging information
         debug!("Selecting records with query: {query}");
-        // Execute the query
-        self.query(Parameters(QueryParams {
-            query,
-            parameters: Some(parameters),
-        }))
-        .await
+        // Execute the query using internal function
+        self.query_internal(query, Some(surreal_parameters)).await
     }
 
     /// Create a new record in the specified table with the provided data.
@@ -477,12 +411,20 @@ Examples:
     ) -> Result<CallToolResult, McpError> {
         let CreateParams { table, data } = params.0;
         debug!("Creating record in table: {table}");
-        let query = format!("CREATE {table} CONTENT {data}");
-        self.query(Parameters(QueryParams {
-            query,
-            parameters: None,
-        }))
-        .await
+        let query = format!("CREATE type::table($table) CONTENT $data");
+        let params = HashMap::from([
+            (
+                "table".to_string(),
+                convert_to_surreal_value(table, "table")
+                    .map_err(|e| McpError::internal_error(e, None))?,
+            ),
+            (
+                "data".to_string(),
+                convert_to_surreal_value(data, "data")
+                    .map_err(|e| McpError::internal_error(e, None))?,
+            ),
+        ]);
+        self.query_internal(query, Some(params)).await
     }
 
     /// Execute a SurrealDB UPDATE statement to modify records in the database.
@@ -1137,6 +1079,104 @@ This is useful when you want to:
         Ok(CallToolResult::success(vec![Content::text(
             "Successfully disconnected from SurrealDB endpoint".to_string(),
         )]))
+    }
+
+    /// Internal query function that executes a SurrealQL query.
+    ///
+    /// This function accepts SurrealDB native Value types, allowing for direct use of
+    /// SurrealQL parameters without JSON conversion. This is used by other tools to
+    /// avoid JSON conversion overhead.
+    async fn query_internal(
+        &self,
+        query_string: String,
+        parameters: Option<HashMap<String, Value>>,
+    ) -> Result<CallToolResult, McpError> {
+        let start_time = Instant::now();
+        let query_id = QUERY_COUNTER.fetch_add(1, Ordering::SeqCst);
+        // Output debugging information
+        debug!(
+            connection_id = %self.connection_id,
+            query_id,
+            query = %query_string,
+            "Executing SurrealQL query"
+        );
+        // Lock the database connection
+        let db_guard = self.db.lock().await;
+        // Match the database connection
+        match &*db_guard {
+            Some(db) => {
+                // Build the query string
+                let mut query_builder = db.query(&query_string);
+                // Bind any parameters
+                if let Some(params) = parameters {
+                    for (key, value) in params {
+                        query_builder = query_builder.bind((key, value));
+                    }
+                }
+                // Execute the query
+                match query_builder.await {
+                    Ok(res) => {
+                        // Get the duration of the query
+                        let duration = start_time.elapsed();
+                        // Format the result as text
+                        let text = format!("{res:?}");
+                        // Output debugging information
+                        info!(
+                            connection_id = %self.connection_id,
+                            query_id,
+                            query = %query_string,
+                            duration_ms = duration.as_millis(),
+                            result_length = text.len(),
+                            "Query execution succeeded"
+                        );
+                        // Update the total queries metric
+                        counter!("surrealmcp.total_queries", 1);
+                        // Update the query duration metric
+                        histogram!("surrealmcp.query_duration_ms", duration.as_millis() as f64);
+                        // Return success message
+                        Ok(CallToolResult::success(vec![Content::text(text)]))
+                    }
+                    Err(e) => {
+                        // Get the duration of the query
+                        let duration = start_time.elapsed();
+                        // Output debugging information
+                        error!(
+                            connection_id = %self.connection_id,
+                            query_id,
+                            query = %query_string,
+                            duration_ms = duration.as_millis(),
+                            error = %e,
+                            "Query execution failed"
+                        );
+                        // Update the error count metrics
+                        counter!("surrealmcp.total_errors", 1);
+                        counter!("surrealmcp.total_query_errors", 1);
+                        // Update the query duration metric
+                        histogram!("surrealmcp.query_duration_ms", duration.as_millis() as f64);
+                        // Return error message
+                        Err(McpError::internal_error(e.to_string(), None))
+                    }
+                }
+            }
+            None => {
+                // Output debugging information
+                warn!(
+                    connection_id = %self.connection_id,
+                    query_id,
+                    query = %query_string,
+                    "Query attempted without database connection"
+                );
+                // Update the query errors metric
+                counter!("surrealmcp.total_errors", 1);
+                counter!("surrealmcp.total_query_errors", 1);
+                // Return error message
+                Err(McpError::internal_error(
+                    "Not connected to any SurrealDB endpoint. Use connect_endpoint first."
+                        .to_string(),
+                    None,
+                ))
+            }
+        }
     }
 
     /// Initialize the database connection using startup configuration.
