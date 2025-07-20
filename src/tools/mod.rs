@@ -71,8 +71,12 @@ pub struct UpdateParams {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct DeleteParams {
-    #[schemars(description = "The table name, record ID, or complex query to delete.")]
-    pub thing: String,
+    #[schemars(description = "The table name to delete from.")]
+    pub table: String,
+    #[schemars(description = "Optional WHERE clause to filter records before deletion.")]
+    pub where_clause: Option<String>,
+    #[schemars(description = "Optional parameters to bind to the query.")]
+    pub parameters: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -362,23 +366,23 @@ Examples:
             query.push_str(&format!(" START AT {v}"));
         }
         // Create parameters with native SurrealDB types
-        let mut surreal_parameters = HashMap::new();
+        let mut params = HashMap::new();
         // Add user-provided parameters if any
-        if let Some(params) = parameters {
-            for (key, val) in params {
+        if let Some(variables) = parameters {
+            for (key, val) in variables {
                 let val = convert_to_surreal_value(val, &key)
                     .map_err(|e| McpError::internal_error(e, None))?;
-                surreal_parameters.insert(key, val);
+                params.insert(key, val);
             }
         }
         // Add the table name as a parameter
-        let table_value = convert_to_surreal_value(table, "table")
+        let table = convert_to_surreal_value(table, "table")
             .map_err(|e| McpError::internal_error(e, None))?;
-        surreal_parameters.insert("table".to_string(), table_value);
+        params.insert("table".to_string(), table);
         // Output debugging information
         debug!("Selecting records with query: {query}");
-        // Execute the query using internal function
-        self.query_internal(query, Some(surreal_parameters)).await
+        // Execute the final query
+        self.query_internal(query, Some(params)).await
     }
 
     /// Create a new record in the specified table with the provided data.
@@ -410,8 +414,9 @@ Examples:
         params: Parameters<CreateParams>,
     ) -> Result<CallToolResult, McpError> {
         let CreateParams { table, data } = params.0;
-        debug!("Creating record in table: {table}");
-        let query = format!("CREATE type::table($table) CONTENT $data");
+        // Build the initial query string
+        let query = "CREATE type::table($table) CONTENT $data".to_string();
+        // Add the table name as a parameter
         let params = HashMap::from([
             (
                 "table".to_string(),
@@ -424,6 +429,9 @@ Examples:
                     .map_err(|e| McpError::internal_error(e, None))?,
             ),
         ]);
+        // Output debugging information
+        debug!("Creating records with query: {query}");
+        // Execute the final query
         self.query_internal(query, Some(params)).await
     }
 
@@ -492,33 +500,55 @@ Examples:
 Execute a SurrealDB DELETE statement to remove records from the database.
 
 This function executes a SurrealDB DELETE statement to remove records from the 
-specified table or delete a specific record by ID.
+specified table. The table name is safely parameterized using type::table() to 
+prevent SQL injection.
 
-The thing parameter can be either:
-- A table name to delete all records from that table
-- A specific record ID in the format 'table:id' to delete a single record
-- Complex queries for conditional deletion
-
-The query results are returned as text, or an error occurs if the query execution fails.
+Parameters:
+- table: The table name to delete from (e.g. "person", "article")
+- where_clause: Optional WHERE clause to filter records before deletion
+- parameters: Optional parameters to bind to the query (e.g. { "min_age": 25, "name_filter": "John" })
 
 Examples:
-- delete('person:john')
-- delete('person WHERE age < 18')
-- delete('article WHERE published = false')
-- delete('person')  # Deletes all records from person table
+- delete("person")  # Deletes all records from person table
+- delete("person", Some("age < 18"))  # Deletes records where age < 18
+- delete("article", Some("published = false"))  # Deletes unpublished articles
+- delete("user", Some("last_login < '2024-01-01'"))  # Deletes inactive users
+- delete("person", Some("age > $min_age AND name CONTAINS $name_filter"), Some({ "min_age": 25, "name_filter": "John" }))  # Parameterized query
 "#)]
     pub async fn delete(
         &self,
         params: Parameters<DeleteParams>,
     ) -> Result<CallToolResult, McpError> {
-        let DeleteParams { thing } = params.0;
-        debug!("Deleting records: {thing}");
-        let query = format!("DELETE {thing}");
-        self.query(Parameters(QueryParams {
-            query,
-            parameters: None,
-        }))
-        .await
+        let DeleteParams {
+            table,
+            where_clause,
+            parameters,
+        } = params.0;
+        debug!("Deleting records from table: {table}");
+        // Build the initial query string
+        let mut query = "DELETE FROM type::table($table)".to_string();
+        // Add the where clause if provided
+        if let Some(v) = where_clause {
+            query.push_str(&format!(" WHERE {v}"));
+        }
+        // Create parameters with native SurrealDB types
+        let mut params = HashMap::new();
+        // Add user-provided parameters if any
+        if let Some(variables) = parameters {
+            for (key, val) in variables {
+                let val = convert_to_surreal_value(val, &key)
+                    .map_err(|e| McpError::internal_error(e, None))?;
+                params.insert(key, val);
+            }
+        }
+        // Add the table name as a parameter
+        let table = convert_to_surreal_value(table, "table")
+            .map_err(|e| McpError::internal_error(e, None))?;
+        params.insert("table".to_string(), table);
+        // Output debugging information
+        debug!("Deleting records with query: {query}");
+        // Execute the final query
+        self.query_internal(query, Some(params)).await
     }
 
     /// Create a relationship between two records in the database.
