@@ -1,0 +1,174 @@
+name: Build Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch name to build from"
+        type: string
+        required: false
+  push:
+    tags:
+      - "*"
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: surrealdb/surrealmcp
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }} Image
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: [runner-amd64-2xlarge]
+            platform: linux/amd64
+          - arch: arm64
+            runner: [runner-arm64-2xlarge]
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      arch: ${{ matrix.arch }}
+      tag: ${{ steps.sanitize.outputs.tag }}
+      branch: ${{ steps.branch.outputs.name }}
+
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASS }}
+
+      - name: Set branch/tag name
+        id: branch
+        run: |
+          BRANCH_NAME="${{ inputs.branch }}"
+          if [ -z "$BRANCH_NAME" ]; then
+            BRANCH_NAME="${{ github.ref_name }}"
+          fi
+          echo "name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "Using branch/tag: $BRANCH_NAME"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.branch.outputs.name }}
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare Docker tag
+        id: sanitize
+        run: |
+          REF_NAME="${{ steps.branch.outputs.name }}"
+
+          # Check if this is a tag push by examining the github context
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # For any tag, use the tag name as-is
+            SANITIZED_TAG="$REF_NAME"
+            echo "Processing tag: $REF_NAME -> $SANITIZED_TAG"
+          else
+            # For branches, sanitize the name
+            SANITIZED_TAG=$(echo "$REF_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/^[.-]*//' | sed 's/[.-]*$//')
+            echo "Processing branch: $REF_NAME -> $SANITIZED_TAG"
+          fi
+
+          # Check if sanitized tag name is empty and fail if so
+          if [ -z "$SANITIZED_TAG" ]; then
+            echo "Error: Branch name '$REF_NAME' resulted in empty tag after sanitization"
+            echo "Please provide a branch name that contains at least one alphanumeric character, underscore, period, or hyphen"
+            exit 1
+          fi
+
+          # Ensure tag is not longer than 128 characters
+          SANITIZED_TAG=$(echo "$SANITIZED_TAG" | cut -c1-128)
+          echo "tag=$SANITIZED_TAG" >> $GITHUB_OUTPUT
+          echo "Using Docker tag: $SANITIZED_TAG"
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ${{ env.IMAGE_NAME }}:${{ steps.sanitize.outputs.tag }}-${{ matrix.arch }}
+          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:cache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:cache-${{ matrix.arch }},mode=max
+          provenance: false
+          sbom: false
+
+      - name: Output image info
+        id: output
+        run: |
+          echo "Built and pushed: ${{ env.IMAGE_NAME }}:${{ steps.sanitize.outputs.tag }}-${{ matrix.arch }}"
+          echo "Platform: ${{ matrix.platform }}"
+          echo "Digest: ${{ steps.build.outputs.digest }}"
+          # Store digest for later use
+          mkdir -p /tmp/digests
+          echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/${{ matrix.arch }}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/${{ matrix.arch }}
+          retention-days: 1
+
+  create-manifest:
+    name: Create Multi-Arch Manifest
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASS }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Create and push multi-arch manifest
+        run: |
+          # Read digests from files
+          AMD64_DIGEST=$(cat /tmp/digests/amd64)
+          ARM64_DIGEST=$(cat /tmp/digests/arm64)
+
+          echo "AMD64 Digest: $AMD64_DIGEST"
+          echo "ARM64 Digest: $ARM64_DIGEST"
+
+          docker buildx imagetools create \
+            --tag ${{ env.IMAGE_NAME }}:${{ needs.build.outputs.tag }} \
+            ${{ env.IMAGE_NAME }}@$AMD64_DIGEST \
+            ${{ env.IMAGE_NAME }}@$ARM64_DIGEST
+
+      - name: Summary
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ needs.build.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** ${{ needs.build.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** ${{ env.IMAGE_NAME }}:${{ needs.build.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Architecture-specific Images" >> $GITHUB_STEP_SUMMARY
+          echo "- AMD64: \`${{ env.IMAGE_NAME }}:${{ needs.build.outputs.tag }}-amd64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- ARM64: \`${{ env.IMAGE_NAME }}:${{ needs.build.outputs.tag }}-arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pull Command" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.IMAGE_NAME }}:${{ needs.build.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
