@@ -49,7 +49,7 @@ disconnect_endpoint()
 ### Basic operations
 - **query**: Execute raw SurrealQL queries for maximum flexibility
 - **create**: Insert new records into tables
-- **select**: Retrieve records from tables or specific record IDs
+- **select**: Retrieve records from tables with optional filtering, grouping, sorting, and pagination
 - **update**: Modify records with support for replace, merge, and patch modes
 - **relate**: Add relationships between records (graph relationships)
 - **delete**: Remove records from tables
@@ -86,10 +86,11 @@ Use `relate` to create graph relationships:
 
 1. **Use specific record IDs** when you know them for better performance
 2. **Use parameterized queries** to prevent SQL injection when dealing with user input
-3. **Use the raw query tool** for complex operations not covered by convenience functions
-4. **Use merge/patch modes** when updating records to preserve existing data
-5. **Create relationships** to model graph data and enable complex queries
-6. **Use table names** in select/delete when you want to operate on all records
+3. **Use the enhanced select tool** which safely parameterizes table names and supports user parameters
+4. **Use the raw query tool** for complex operations not covered by convenience functions
+5. **Use merge/patch modes** when updating records to preserve existing data
+6. **Create relationships** to model graph data and enable complex queries
+7. **Use table names** in select/delete when you want to operate on all records
 
 ## Example workflows
 
@@ -97,6 +98,12 @@ Use `relate` to create graph relationships:
 1. Create authors: `create("person", {"name": "John", "email": "john@example.com"})`
 2. Create articles: `create("article", {"title": "SurrealDB Guide", "content": "..."})`
 3. Link them: `relate("person:john", "wrote", "article:surreal_guide", None)`
+
+### Advanced querying with enhanced select
+1. Filter and sort users: `select("person", Some("age > 25"), None, None, Some("name ASC"), Some("10"), None)`
+2. Group articles by author: `select("article", Some("published = true"), Some("author"), Some("author"), Some("created_at DESC"), Some("20"), None)`
+3. Paginate results: `select("person", Some("city = 'NYC'"), None, None, Some("age DESC"), Some("5"), Some("10"))`
+4. Parameterized queries: `select("person", Some("age > $min_age AND name CONTAINS $name_filter"), None, None, None, Some("10"), None, Some({"min_age": 25, "name_filter": "John"}))`
 
 ### Updating user profiles
 1. Replace entire profile: `update("person:john", {"name": "John", "age": 30}, None)`
@@ -134,33 +141,51 @@ Use `relate` to create graph relationships:
 #### SELECT statement
 
 ```surql
--- Select all records from a table
-SELECT * FROM person;
+-- Select all records from a table (secure with type::table)
+SELECT * FROM type::table($table);
 
 -- Select specific fields
-SELECT name, age FROM person;
+SELECT name, age FROM type::table($table);
 
--- Select by record ID
-SELECT * FROM person:john;
+-- Select by record ID (secure with type::table)
+SELECT * FROM type::table($table):john;
 
 -- Select with WHERE conditions
-SELECT * FROM person WHERE age > 25;
+SELECT * FROM type::table($table) WHERE age > 25;
 
--- Select with ORDER BY and LIMIT
-SELECT * FROM person WHERE age > 25 ORDER BY name LIMIT 10;
+-- Select with WHERE, ORDER BY, and LIMIT
+SELECT * FROM type::table($table) WHERE age > 25 ORDER BY name LIMIT 10;
+
+-- Select with SPLIT ON (split records on specific fields)
+SELECT * FROM type::table($table) SPLIT ON age, city;
+
+-- Select with GROUP BY
+SELECT count(), age FROM type::table($table) GROUP BY age;
+
+-- Select with pagination (LIMIT and START AT)
+SELECT * FROM type::table($table) ORDER BY name LIMIT 10 START AT 20;
 
 -- Select with relationships (graph queries)
-SELECT * FROM person WHERE ->knows->person.age > 30;
+SELECT * FROM type::table($table) WHERE ->knows->person.age > 30;
 
 -- Select with nested relationships
-SELECT * FROM person WHERE ->wrote->article->has->category.name = 'Technology';
+SELECT * FROM type::table($table) WHERE ->wrote->article->has->category.name = 'Technology';
 
 -- Select with aggregation
-SELECT count() FROM person;
-SELECT count() FROM article GROUP BY author;
+SELECT count() FROM type::table($table);
+SELECT count() FROM type::table($table) GROUP BY author;
 
 -- Select with subqueries
-SELECT * FROM person WHERE id IN (SELECT author FROM article);
+SELECT * FROM type::table($table) WHERE id IN (SELECT author FROM article);
+
+-- Complex query with multiple clauses
+SELECT * FROM type::table($table) 
+WHERE age > 25 AND city = 'NYC' 
+SPLIT ON age 
+GROUP BY age, city 
+ORDER BY age DESC 
+LIMIT 10 
+START AT 5;
 ```
 
 #### CREATE statement

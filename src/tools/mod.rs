@@ -39,8 +39,24 @@ pub struct CreateParams {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct SelectParams {
-    #[schemars(description = "The table name, record ID, or complex query to select from.")]
-    pub thing: String,
+    #[schemars(description = "The table name to select from.")]
+    pub table: String,
+    #[schemars(description = "Optional WHERE clause to filter records.")]
+    pub where_clause: Option<String>,
+    #[schemars(description = "Optional SPLIT ON clause to split records on specific fields.")]
+    pub split_clause: Option<String>,
+    #[schemars(description = "Optional GROUP BY clause to group records.")]
+    pub group_clause: Option<String>,
+    #[schemars(description = "Optional ORDER BY clause to sort records.")]
+    pub order_clause: Option<String>,
+    #[schemars(description = "Optional LIMIT clause to limit the number of results.")]
+    pub limit_clause: Option<String>,
+    #[schemars(description = "Optional START clause to specify the pagination position.")]
+    pub start_clause: Option<String>,
+    #[schemars(
+        description = "Optional parameters to bind to the query (for use in WHERE clauses, etc.)."
+    )]
+    pub parameters: Option<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -350,40 +366,83 @@ Parameterized query examples:
     /// specific record ID in the format "table:id" to select a single record.
     /// The query results are returned as text, or an error occurs if the query
     /// execution fails.
-    ///
-    /// # Arguments
-    /// * `thing` - The table name or record ID to select from
     #[tool(description = r#"
 Execute a SurrealDB SELECT statement to retrieve records from the database.
 
 This function executes a SurrealDB SELECT statement to query records from the specified 
-table or retrieve a specific record by ID.
+table. You can optionally add various clauses to filter, group, sort, and paginate the 
+results. The table name is safely parameterized using type::table() to prevent SQL 
+injection.
 
-The thing parameter can be either:
-- A table name to select all records from that table
-- A specific record ID in the format 'table:id' to select a single record
-- Complex SurrealQL syntax for filtered or related queries
+Parameters:
+- table: The table name to select from (e.g. "person", "article")
 
-You can also use complex SurrealQL syntax like 'person WHERE age > 25' or 'person:john.*' 
-to get all related records.
+Optional clauses:
+- where_clause: Filter records (e.g. "age > 25 AND name CONTAINS 'John'")
+- split_clause: Split records on specific fields (e.g. "age, city")
+- group_clause: Group records by fields (e.g. "age, city")
+- order_clause: Sort records (e.g. "name ASC, age DESC")
+- limit_clause: Limit number of records (e.g. "10")
+- start_clause: Start from specific position for pagination (e.g. "20")
+- parameters: Optional parameters to bind to the query (e.g. { "min_age": 25, "name_filter": "John" })
 
 Examples:
-- select('person')
-- select('person:john')
-- select('person WHERE age > 25 ORDER BY name')
-- select('person:john.*')
-- select('person WHERE ->knows->person.age > 30')
+- select("person")  # All records from person table
+- select("person", Some("age > 25"), None, None, Some("name ASC"), Some("10"), None)  # Filtered and sorted
+- select("person", Some("age > $min_age"), None, Some("city"), Some("age DESC"), Some("10"), Some("20"), Some({"min_age": 25}))  # With parameters
+- select("article", Some("published = true"), Some("author"), None, Some("created_at DESC"), Some("5"), None)  # With split and pagination
+- select("person", Some("age > $min_age AND name CONTAINS $name_filter"), None, None, None, Some("10"), None, Some({ "min_age": 25, "name_filter": "John" }))  # Complex parameterized query
 "#)]
     pub async fn select(
         &self,
         params: Parameters<SelectParams>,
     ) -> Result<CallToolResult, McpError> {
-        let SelectParams { thing } = params.0;
-        debug!("Selecting records: {thing}");
-        let query = format!("SELECT * FROM {thing}");
+        let SelectParams {
+            table,
+            where_clause,
+            split_clause,
+            group_clause,
+            order_clause,
+            limit_clause,
+            start_clause,
+            parameters,
+        } = params.0;
+        // Build the initial query string
+        let mut query = "SELECT * FROM type::table($table)".to_string();
+        // Add the where clause if provided
+        if let Some(v) = where_clause {
+            query.push_str(&format!(" WHERE {v}"));
+        }
+        // Add the split on clause if provided
+        if let Some(v) = split_clause {
+            query.push_str(&format!(" SPLIT ON {v}"));
+        }
+        // Add the group by clause if provided
+        if let Some(v) = group_clause {
+            query.push_str(&format!(" GROUP BY {v}"));
+        }
+        // Add the order by clause if provided
+        if let Some(v) = order_clause {
+            query.push_str(&format!(" ORDER BY {v}"));
+        }
+        // Add the limit clause if provided
+        if let Some(v) = limit_clause {
+            query.push_str(&format!(" LIMIT BY {v}"));
+        }
+        // Add the start at clause if provided
+        if let Some(v) = start_clause {
+            query.push_str(&format!(" START AT {v}"));
+        }
+        // Get the user-provided parameters
+        let mut parameters = parameters.unwrap_or_default();
+        // Add the table name as a parameter
+        parameters.insert("table".to_string(), serde_json::Value::String(table));
+        // Output debugging information
+        debug!("Selecting records with query: {query}");
+        // Execute the query
         self.query(Parameters(QueryParams {
             query,
-            parameters: None,
+            parameters: Some(parameters),
         }))
         .await
     }
@@ -394,10 +453,6 @@ Examples:
     /// into the specified table. The data is provided as a JSON value and will be
     /// used as the content for the new record. The table parameter can be either
     /// a table name or a specific record ID in the format "table:id".
-    ///
-    /// # Arguments
-    /// * `table` - The table name or record ID where the new record will be created
-    /// * `data` - The JSON data to be inserted as the record content
     #[tool(description = r#"
 Create a new record in the specified table with the provided data.
 
@@ -437,11 +492,6 @@ Examples:
     /// to update all records in that table, or a specific record ID in the format
     /// "table:id" to update a single record. The update_mode parameter determines
     /// how the data is applied to the existing record.
-    ///
-    /// # Arguments
-    /// * `thing` - The table name or record ID to update
-    /// * `data` - The JSON data to apply to the record
-    /// * `update_mode` - How to apply the data: "replace" (default), "merge", or "patch"
     #[tool(description = r#"
 Execute a SurrealDB UPDATE statement to modify records in the database.
 
@@ -496,9 +546,6 @@ Examples:
     /// specific record ID in the format "table:id" to delete a single record.
     /// The query results are returned as text, or an error occurs if the query
     /// execution fails.
-    ///
-    /// # Arguments
-    /// * `thing` - The table name or record ID to delete
     #[tool(description = r#"
 Execute a SurrealDB DELETE statement to remove records from the database.
 
@@ -538,12 +585,6 @@ Examples:
     /// between two records. The relationship is defined by the from_id, relationship_type,
     /// and to_id parameters. Optionally, you can provide content data to store on the
     /// relationship edge itself.
-    ///
-    /// # Arguments
-    /// * `from_id` - The source record ID (e.g., "person:john")
-    /// * `relationship_type` - The type of relationship (e.g., "wrote", "knows", "owns")
-    /// * `to_id` - The target record ID (e.g., "article:surreal", "person:jane", "car:tesla")
-    /// * `content` - Optional JSON data to store on the relationship edge
     #[tool(description = r#"
 Create a relationship between two records in the database.
 
