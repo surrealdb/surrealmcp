@@ -32,6 +32,7 @@ pub struct ServerConfig {
     pub server_url: String,
     pub bind_address: Option<String>,
     pub socket_path: Option<String>,
+    pub auth_disabled: bool,
     pub rate_limit_rps: u32,
     pub rate_limit_burst: u32,
     pub cloud_auth_server: String,
@@ -52,6 +53,7 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
         server_url = config.server_url,
         bind_address = config.bind_address.as_deref().unwrap_or("N/A"),
         socket_path = config.socket_path.as_deref().unwrap_or("N/A"),
+        auth_disabled = config.auth_disabled,
         rate_limit_rps = config.rate_limit_rps,
         rate_limit_burst = config.rate_limit_burst,
         cloud_auth_server = config.cloud_auth_server,
@@ -257,6 +259,7 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
         pass,
         server_url,
         bind_address,
+        auth_disabled,
         rate_limit_rps,
         rate_limit_burst,
         cloud_auth_server,
@@ -356,12 +359,15 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
             },
         );
     // Create an Axum router with rate limiting and tracing at /mcp
-    let router = Router::new()
+    let mut router = Router::new()
         .nest_service("/.well-known", well_known_service)
         .nest_service("/mcp", mcp_service)
         .layer(trace_layer)
-        .layer(rate_limit_layer)
-        .layer(axum::middleware::from_fn(require_bearer_auth));
+        .layer(rate_limit_layer);
+    // Add bearer authentication middleware if specified
+    if !auth_disabled {
+        router = router.layer(axum::middleware::from_fn(require_bearer_auth));
+    }
     // Serve the Axum router over HTTP
     axum::serve(listener, router)
         .with_graceful_shutdown(async {

@@ -40,6 +40,9 @@ pub enum Commands {
         /// Rate limit burst size (default: 200)
         #[arg(long, env = "SURREAL_MCP_RATE_LIMIT_BURST", default_value = "200")]
         rate_limit_burst: u32,
+        /// Whether to require authentication for the MCP server
+        #[arg(long, env = "SURREAL_MCP_AUTH_REQUIRED", default_value = "false")]
+        auth_disabled: bool,
         /// The URL address that the MCP server is accessible at
         #[arg(
             long,
