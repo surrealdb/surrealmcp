@@ -17,6 +17,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::logs::init_logging_and_metrics;
 use crate::server::auth::require_bearer_auth;
+use crate::server::http::health;
 use crate::server::limit::create_rate_limit_layer;
 use crate::tools::SurrealService;
 use crate::utils::{format_duration, generate_connection_id};
@@ -362,6 +363,7 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
     let mut router = Router::new()
         .nest_service("/.well-known", well_known_service)
         .nest_service("/mcp", mcp_service)
+        .route("/health", get(health))
         .layer(trace_layer)
         .layer(rate_limit_layer);
     // Add bearer authentication middleware if specified
