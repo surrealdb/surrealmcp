@@ -60,6 +60,24 @@ pub struct CreateParams {
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
+pub struct UpsertParams {
+    #[schemars(description = "Array of table names or record IDs to upsert.")]
+    pub targets: Vec<String>,
+    #[schemars(description = "The JSON data to apply to the record.")]
+    pub patch_data: Option<Vec<serde_json::Value>>,
+    #[schemars(description = "The JSON data to apply to the record.")]
+    pub merge_data: Option<serde_json::Map<String, serde_json::Value>>,
+    #[schemars(description = "The JSON data to apply to the record.")]
+    pub content_data: Option<serde_json::Map<String, serde_json::Value>>,
+    #[schemars(description = "The JSON data to apply to the record.")]
+    pub replace_data: Option<serde_json::Map<String, serde_json::Value>>,
+    #[schemars(description = "Optional WHERE clause to filter records before upserting.")]
+    pub where_clause: Option<String>,
+    #[schemars(description = "Optional parameters to bind to the query.")]
+    pub parameters: Option<HashMap<String, serde_json::Value>>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
 pub struct UpdateParams {
     #[schemars(description = "Array of table names or record IDs to update.")]
     pub targets: Vec<String>,
@@ -67,6 +85,8 @@ pub struct UpdateParams {
     pub patch_data: Option<Vec<serde_json::Value>>,
     #[schemars(description = "The JSON data to apply to the record.")]
     pub merge_data: Option<serde_json::Map<String, serde_json::Value>>,
+    #[schemars(description = "The JSON data to apply to the record.")]
+    pub content_data: Option<serde_json::Map<String, serde_json::Value>>,
     #[schemars(description = "The JSON data to apply to the record.")]
     pub replace_data: Option<serde_json::Map<String, serde_json::Value>>,
     #[schemars(description = "Optional WHERE clause to filter records before updating.")]
@@ -441,6 +461,115 @@ This is useful for creating users, articles, products, or any other entities in 
         self.query_internal(query, Some(params)).await
     }
 
+    /// Execute a SurrealDB UPSERT statement to create or update records in the database.
+    ///
+    /// This function executes a SurrealDB UPSERT statement to create new records
+    /// or update existing ones. The UPSERT statement combines the functionality
+    /// of CREATE and UPDATE, inserting a new record if it doesn't exist, or
+    /// updating an existing record if it does.
+    #[tool(description = r#"
+Execute a SurrealDB UPSERT statement to create or update records in the database.
+
+This function executes a SurrealDB UPSERT statement to create new records or update 
+existing ones. The UPSERT statement combines the functionality of CREATE and UPDATE, 
+inserting a new record if it doesn't exist, or updating an existing record if it does.
+
+The what parameter accepts an array where each item can be either:
+- A table name (SurrealDB will generate unique IDs)
+- A specific record ID in the format 'table:id'
+
+You can specify how to apply the data using different modes:
+- content_data: Sets the complete record content (like CREATE CONTENT)
+- replace_data: Completely replaces the record content (like UPDATE CONTENT)
+- merge_data: Combines new data with existing data (like UPDATE MERGE)
+- patch_data: Applies JSON patch operations (like UPDATE PATCH)
+
+Examples:
+- upsert(["person:john"], {"name": "John", "age": 30})  # Creates or updates specific record
+- upsert(["person"], {"name": "Jane", "age": 25}, Some("age > 18"))  # Upserts with condition
+- upsert(["article:123"], {"title": "New Title"}, None, Some({"status": "published"}))  # Merge mode
+"#)]
+    pub async fn upsert(
+        &self,
+        params: Parameters<UpsertParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let UpsertParams {
+            targets,
+            patch_data,
+            merge_data,
+            replace_data,
+            content_data,
+            where_clause,
+            parameters,
+        } = params.0;
+        // Output debugging information
+        debug!(targets = ?targets, "Upserting records");
+        // Create parameters with native SurrealDB types
+        let mut params = HashMap::new();
+        // Build the initial query string
+        let mut query = "UPSERT ".to_string();
+        // Process the tables and Record IDs
+        query.push_str(&parse_targets(targets).map_err(|e| McpError::internal_error(e, None))?);
+        // Add the data content clause based on the mode
+        match (replace_data, content_data, merge_data, patch_data) {
+            (Some(v), None, None, None) => {
+                query.push_str(" REPLACE $data");
+                // Add the data input as a parameter
+                params.insert(
+                    "data".to_string(),
+                    convert_json_to_surreal(v, "data")
+                        .map_err(|e| McpError::internal_error(e, None))?,
+                );
+            }
+            (None, Some(v), None, None) => {
+                query.push_str(" CONTENT $data");
+                // Add the data input as a parameter
+                params.insert(
+                    "data".to_string(),
+                    convert_json_to_surreal(v, "data")
+                        .map_err(|e| McpError::internal_error(e, None))?,
+                );
+            }
+            (None, None, Some(v), None) => {
+                query.push_str(" MERGE $data");
+                // Add the data input as a parameter
+                params.insert(
+                    "data".to_string(),
+                    convert_json_to_surreal(v, "data")
+                        .map_err(|e| McpError::internal_error(e, None))?,
+                );
+            }
+            (None, None, None, Some(v)) => {
+                query.push_str(" PATCH $data");
+                // Add the data input as a parameter
+                params.insert(
+                    "data".to_string(),
+                    convert_json_to_surreal(v, "data")
+                        .map_err(|e| McpError::internal_error(e, None))?,
+                );
+            }
+            _ => {
+                return Err(McpError::internal_error("Invalid upsert mode", None));
+            }
+        };
+        // Add the where clause if provided
+        if let Some(v) = where_clause {
+            query.push_str(&format!(" WHERE {v}"));
+        }
+        // Add user-provided parameters if any
+        if let Some(variables) = parameters {
+            for (key, val) in variables {
+                let val = convert_json_to_surreal(val, &key)
+                    .map_err(|e| McpError::internal_error(e, None))?;
+                params.insert(key, val);
+            }
+        }
+        // Output debugging information
+        trace!("Upserting records with query: {query}");
+        // Execute the final query
+        self.query_internal(query, Some(params)).await
+    }
+
     /// Execute a SurrealDB UPDATE statement to modify records in the database.
     ///
     /// This function executes a SurrealDB UPDATE statement to modify the content
@@ -483,6 +612,7 @@ Examples:
             targets,
             patch_data,
             merge_data,
+            content_data,
             replace_data,
             where_clause,
             parameters,
@@ -496,8 +626,17 @@ Examples:
         // Process the tables and Record IDs
         query.push_str(&parse_targets(targets).map_err(|e| McpError::internal_error(e, None))?);
         // Add the data content clause
-        match (replace_data, merge_data, patch_data) {
-            (Some(v), None, None) => {
+        match (replace_data, content_data, merge_data, patch_data) {
+            (Some(v), None, None, None) => {
+                query.push_str(" REPLACE $data");
+                // Add the data input as a parameter
+                params.insert(
+                    "data".to_string(),
+                    convert_json_to_surreal(v, "data")
+                        .map_err(|e| McpError::internal_error(e, None))?,
+                );
+            }
+            (None, Some(v), None, None) => {
                 query.push_str(" CONTENT $data");
                 // Add the data input as a parameter
                 params.insert(
@@ -506,7 +645,7 @@ Examples:
                         .map_err(|e| McpError::internal_error(e, None))?,
                 );
             }
-            (None, Some(v), None) => {
+            (None, None, Some(v), None) => {
                 query.push_str(" MERGE $data");
                 // Add the data input as a parameter
                 params.insert(
@@ -515,7 +654,7 @@ Examples:
                         .map_err(|e| McpError::internal_error(e, None))?,
                 );
             }
-            (None, None, Some(v)) => {
+            (None, None, None, Some(v)) => {
                 query.push_str(" PATCH $data");
                 // Add the data input as a parameter
                 params.insert(
