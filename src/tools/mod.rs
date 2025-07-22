@@ -18,7 +18,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::db;
-use crate::utils::convert_to_surreal_value;
+use crate::utils::{convert_json_to_surreal, parse_targets};
 
 // Global metrics
 static QUERY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -28,13 +28,13 @@ pub struct QueryParams {
     #[schemars(description = "The SurrealQL query string")]
     pub query: String,
     #[schemars(description = "Optional parameters to bind to the query")]
-    pub parameters: Option<std::collections::HashMap<String, serde_json::Value>>,
+    pub parameters: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct SelectParams {
-    #[schemars(description = "The table name to select from.")]
-    pub table: String,
+    #[schemars(description = "Array of table names or record IDs to select from.")]
+    pub targets: Vec<String>,
     #[schemars(description = "Optional WHERE clause to filter records.")]
     pub where_clause: Option<String>,
     #[schemars(description = "Optional SPLIT ON clause to split records on specific fields.")]
@@ -53,30 +53,32 @@ pub struct SelectParams {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct CreateParams {
-    #[schemars(description = "The table name or record ID where the new record will be created.")]
-    pub table: String,
+    #[schemars(description = "Array of table names or record IDs to create.")]
+    pub targets: Vec<String>,
     #[schemars(description = "The JSON data to be inserted as the record content.")]
-    pub data: serde_json::Value,
+    pub data: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct UpdateParams {
-    #[schemars(description = "The table name to update.")]
-    pub table: String,
+    #[schemars(description = "Array of table names or record IDs to update.")]
+    pub targets: Vec<String>,
     #[schemars(description = "The JSON data to apply to the record.")]
-    pub data: serde_json::Value,
+    pub patch_data: Option<Vec<serde_json::Value>>,
+    #[schemars(description = "The JSON data to apply to the record.")]
+    pub merge_data: Option<serde_json::Map<String, serde_json::Value>>,
+    #[schemars(description = "The JSON data to apply to the record.")]
+    pub replace_data: Option<serde_json::Map<String, serde_json::Value>>,
     #[schemars(description = "Optional WHERE clause to filter records before updating.")]
     pub where_clause: Option<String>,
-    #[schemars(description = "Update mode for applying data to existing records.")]
-    pub update_mode: Option<String>,
     #[schemars(description = "Optional parameters to bind to the query.")]
     pub parameters: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct DeleteParams {
-    #[schemars(description = "The table name to delete from.")]
-    pub table: String,
+    #[schemars(description = "Array of table names or record IDs to delete from.")]
+    pub targets: Vec<String>,
     #[schemars(description = "Optional WHERE clause to filter records before deletion.")]
     pub where_clause: Option<String>,
     #[schemars(description = "Optional parameters to bind to the query.")]
@@ -282,7 +284,7 @@ Parameterized query examples:
         let parameters = if let Some(params) = parameters {
             let mut converted = HashMap::new();
             for (key, val) in params {
-                let surreal_val = convert_to_surreal_value(val, &key)
+                let surreal_val = convert_json_to_surreal(val, &key)
                     .map_err(|e| McpError::internal_error(e, None))?;
                 converted.insert(key, surreal_val);
             }
@@ -297,8 +299,8 @@ Parameterized query examples:
     /// Execute a SurrealDB SELECT statement to retrieve records from the database.
     ///
     /// This function executes a SurrealDB SELECT statement to query records from
-    /// the specified table or retrieve a specific record by ID. The thing parameter
-    /// can be either a table name to select all records from that table, or a
+    /// the specified tables or retrieve specific records by ID. Each item in the from
+    /// parameter can be either a table name to select all records from that table, or a
     /// specific record ID in the format "table:id" to select a single record.
     /// The query results are returned as text, or an error occurs if the query
     /// execution fails.
@@ -306,12 +308,14 @@ Parameterized query examples:
 Execute a SurrealDB SELECT statement to retrieve records from the database.
 
 This function executes a SurrealDB SELECT statement to query records from the specified 
-table. You can optionally add various clauses to filter, group, sort, and paginate the 
-results. The table name is safely parameterized using type::table() to prevent SQL 
-injection.
+tables or record IDs. Each item in the what parameter is parsed to determine if it's a 
+table name or a record ID. You can optionally add various clauses to filter, group, sort, 
+and paginate the results.
 
 Parameters:
-- table: The table name to select from (e.g. "person", "article")
+- from: Array of table names or record IDs to select from. Each item can be either:
+  - A table name (e.g. "person", "article") - selects all records from that table
+  - A record ID (e.g. "person:john", "article:123") - selects a specific record
 
 Optional clauses:
 - where_clause: Filter records (e.g. "age > 25 AND name CONTAINS 'John'")
@@ -323,18 +327,21 @@ Optional clauses:
 - parameters: Optional parameters to bind to the query (e.g. { "min_age": 25, "name_filter": "John" })
 
 Examples:
-- select("person")  # All records from person table
-- select("person", Some("age > 25"), None, None, Some("name ASC"), Some("10"), None)  # Filtered and sorted
-- select("person", Some("age > $min_age"), None, Some("city"), Some("age DESC"), Some("10"), Some("20"), Some({"min_age": 25}))  # With parameters
-- select("article", Some("published = true"), Some("author"), None, Some("created_at DESC"), Some("5"), None)  # With split and pagination
-- select("person", Some("age > $min_age AND name CONTAINS $name_filter"), None, None, None, Some("10"), None, Some({ "min_age": 25, "name_filter": "John" }))  # Complex parameterized query
+- select(["person"])  # All records from person table
+- select(["person:john"])  # Specific record
+- select(["person", "article"])  # All records from both tables
+- select(["person:john", "article:123"])  # Specific records
+- select(["person"], Some("age > 25"), None, None, Some("name ASC"), Some("10"), None)  # Filtered and sorted
+- select(["person"], Some("age > $min_age"), None, Some("city"), Some("age DESC"), Some("10"), Some("20"), Some({"min_age": 25}))  # With parameters
+- select(["article"], Some("published = true"), Some("author"), None, Some("created_at DESC"), Some("5"), None)  # With split and pagination
+- select(["person"], Some("age > $min_age AND name CONTAINS $name_filter"), None, None, None, Some("10"), None, Some({ "min_age": 25, "name_filter": "John" }))  # Complex parameterized query
 "#)]
     pub async fn select(
         &self,
         params: Parameters<SelectParams>,
     ) -> Result<CallToolResult, McpError> {
         let SelectParams {
-            table,
+            targets,
             where_clause,
             split_clause,
             group_clause,
@@ -343,10 +350,13 @@ Examples:
             start_clause,
             parameters,
         } = params.0;
+
         // Output debugging information
-        debug!("Selecting records in table: {table}");
+        debug!(targets = ?targets, "Selecting records");
         // Build the initial query string
-        let mut query = "SELECT * FROM type::table($table)".to_string();
+        let mut query = "SELECT * FROM ".to_string();
+        // Process the tables and Record IDs
+        query.push_str(&parse_targets(targets).map_err(|e| McpError::internal_error(e, None))?);
         // Add the where clause if provided
         if let Some(v) = where_clause {
             query.push_str(&format!(" WHERE {v}"));
@@ -376,15 +386,11 @@ Examples:
         // Add user-provided parameters if any
         if let Some(variables) = parameters {
             for (key, val) in variables {
-                let val = convert_to_surreal_value(val, &key)
+                let val = convert_json_to_surreal(val, &key)
                     .map_err(|e| McpError::internal_error(e, None))?;
                 params.insert(key, val);
             }
         }
-        // Add the table name as a parameter
-        let table = convert_to_surreal_value(table, "table")
-            .map_err(|e| McpError::internal_error(e, None))?;
-        params.insert("table".to_string(), table);
         // Output debugging information
         trace!("Selecting records with query: {query}");
         // Execute the final query
@@ -398,45 +404,37 @@ Examples:
     /// used as the content for the new record. The table parameter can be either
     /// a table name or a specific record ID in the format "table:id".
     #[tool(description = r#"
-Create a new record in the specified table with the provided data.
+Create new records in the specified tables or with specific record IDs.
 
-This function executes a SurrealDB CREATE statement to insert a new record into the 
-specified table. The data is provided as a JSON value and will be used as the content 
-for the new record.
+This function executes a SurrealDB CREATE statement to insert new records into the 
+specified tables or with specific record IDs. The data is provided as a JSON value 
+and will be used as the content for the new records.
 
-The table parameter can be either:
-- A table name (SurrealDB will generate a unique ID)
+The what parameter accepts an array where each item can be either:
+- A table name (SurrealDB will generate unique IDs)
 - A specific record ID in the format 'table:id'
 
 This is useful for creating users, articles, products, or any other entities in your database.
-
-Examples:
-- create('person', {"name": "John", "age": 30})
-- create('person:john', {"name": "John", "age": 30})
-- create('article', {"title": "SurrealDB Guide", "content": "..."})
 "#)]
     pub async fn create(
         &self,
         params: Parameters<CreateParams>,
     ) -> Result<CallToolResult, McpError> {
-        let CreateParams { table, data } = params.0;
+        let CreateParams { targets, data } = params.0;
         // Output debugging information
-        debug!("Creating records in table: {table}");
+        debug!(targets = ?targets, "Creating records");
         // Build the initial query string
-        let query = "CREATE type::table($table) CONTENT $data".to_string();
-        // Add the table name as a parameter
-        let params = HashMap::from([
-            (
-                "table".to_string(),
-                convert_to_surreal_value(table, "table")
-                    .map_err(|e| McpError::internal_error(e, None))?,
-            ),
-            (
-                "data".to_string(),
-                convert_to_surreal_value(data, "data")
-                    .map_err(|e| McpError::internal_error(e, None))?,
-            ),
-        ]);
+        let mut query = "CREATE ".to_string();
+        // Process the tables and Record IDs
+        query.push_str(&parse_targets(targets).map_err(|e| McpError::internal_error(e, None))?);
+        // Add the data content clause
+        query.push_str(" CONTENT $data");
+        // Create parameters with native SurrealDB types
+        let mut params = HashMap::new();
+        // Add the record data
+        let data =
+            convert_json_to_surreal(data, "data").map_err(|e| McpError::internal_error(e, None))?;
+        params.insert("data".to_string(), data);
         // Output debugging information
         trace!("Creating records with query: {query}");
         // Execute the final query
@@ -454,11 +452,11 @@ Examples:
 Execute a SurrealDB UPDATE statement to modify records in the database.
 
 This function executes a SurrealDB UPDATE statement to modify the content of records 
-in the database. The table name is safely parameterized using type::table() to 
-prevent SQL injection.
+in the database. The what parameter accepts an array where each item can be either a 
+table name or a specific record ID, similar to the select function.
 
 Parameters:
-- table: The table name to update (e.g. "person", "article")
+- what: Array of table names or record IDs to update (e.g. ["person"], ["person:john"], ["person", "article"])
 - data: The JSON data to apply to the records
 - where_clause: Optional WHERE clause to filter records before updating
 - update_mode: Optional update mode for applying data to existing records
@@ -470,52 +468,78 @@ Update modes:
 - 'patch': Applies JSON patch operations
 
 Examples:
-- update("person", {"age": 31})  # Updates all records in person table
-- update("person", {"age": 31}, Some("id = 'john'"))  # Updates specific record
-- update("person", {"city": "NYC"}, Some("age > 25"), Some("merge"))  # Merges data for filtered records
-- update("article", {"status": "published"}, Some("draft = true"))  # Updates draft articles
-- update("user", {"last_login": "2024-01-15"}, Some("last_login < $cutoff_date"), Some("replace"), Some({ "cutoff_date": "2024-01-01" }))  # Parameterized query
+- update(["person"], {"age": 31})  # Updates all records in person table
+- update(["person:john"], {"age": 31})  # Updates specific record
+- update(["person", "article"], {"status": "active"})  # Updates records in multiple tables
+- update(["person"], {"city": "NYC"}, Some("age > 25"), Some("merge"))  # Merges data for filtered records
+- update(["article"], {"status": "published"}, Some("draft = true"))  # Updates draft articles
+- update(["user"], {"last_login": "2024-01-15"}, Some("last_login < $cutoff_date"), Some("replace"), Some({ "cutoff_date": "2024-01-01" }))  # Parameterized query
 "#)]
     pub async fn update(
         &self,
         params: Parameters<UpdateParams>,
     ) -> Result<CallToolResult, McpError> {
         let UpdateParams {
-            table,
-            data,
+            targets,
+            patch_data,
+            merge_data,
+            replace_data,
             where_clause,
-            update_mode,
             parameters,
         } = params.0;
-        let mode = update_mode.as_deref().unwrap_or("replace");
         // Output debugging information
-        debug!("Updating records in table: {table}");
+        debug!(targets = ?targets, "Updating records");
+        // Create parameters with native SurrealDB types
+        let mut params = HashMap::new();
         // Build the initial query string
-        let mut query = "UPDATE type::table($table)".to_string();
-        // Add the update mode and data
-        match mode {
-            "merge" => query.push_str(&format!(" MERGE {data}")),
-            "patch" => query.push_str(&format!(" PATCH {data}")),
-            _ => query.push_str(&format!(" CONTENT {data}")), // replace is default
-        }
+        let mut query = "UPDATE ".to_string();
+        // Process the tables and Record IDs
+        query.push_str(&parse_targets(targets).map_err(|e| McpError::internal_error(e, None))?);
+        // Add the data content clause
+        match (replace_data, merge_data, patch_data) {
+            (Some(v), None, None) => {
+                query.push_str(" CONTENT $data");
+                // Add the data input as a parameter
+                params.insert(
+                    "data".to_string(),
+                    convert_json_to_surreal(v, "data")
+                        .map_err(|e| McpError::internal_error(e, None))?,
+                );
+            }
+            (None, Some(v), None) => {
+                query.push_str(" MERGE $data");
+                // Add the data input as a parameter
+                params.insert(
+                    "data".to_string(),
+                    convert_json_to_surreal(v, "data")
+                        .map_err(|e| McpError::internal_error(e, None))?,
+                );
+            }
+            (None, None, Some(v)) => {
+                query.push_str(" PATCH $data");
+                // Add the data input as a parameter
+                params.insert(
+                    "data".to_string(),
+                    convert_json_to_surreal(v, "data")
+                        .map_err(|e| McpError::internal_error(e, None))?,
+                );
+            }
+            _ => {
+                return Err(McpError::internal_error("Invalid update mode", None));
+            }
+        };
         // Add the where clause if provided
         if let Some(v) = where_clause {
             query.push_str(&format!(" WHERE {v}"));
         }
-        // Create parameters with native SurrealDB types
-        let mut params = HashMap::new();
         // Add user-provided parameters if any
         if let Some(variables) = parameters {
             for (key, val) in variables {
-                let val = convert_to_surreal_value(val, &key)
+                let val = convert_json_to_surreal(val, &key)
                     .map_err(|e| McpError::internal_error(e, None))?;
                 params.insert(key, val);
             }
         }
-        // Add the table name as a parameter
-        let table = convert_to_surreal_value(table, "table")
-            .map_err(|e| McpError::internal_error(e, None))?;
-        params.insert("table".to_string(), table);
         // Output debugging information
         trace!("Updating records with query: {query}");
         // Execute the final query
@@ -534,34 +558,38 @@ Examples:
 Execute a SurrealDB DELETE statement to remove records from the database.
 
 This function executes a SurrealDB DELETE statement to remove records from the 
-specified table. The table name is safely parameterized using type::table() to 
-prevent SQL injection.
+specified tables or specific record IDs. The what parameter accepts an array where 
+each item can be either a table name or a specific record ID, similar to the select function.
 
 Parameters:
-- table: The table name to delete from (e.g. "person", "article")
+- what: Array of table names or record IDs to delete from (e.g. ["person"], ["person:john"], ["person", "article"])
 - where_clause: Optional WHERE clause to filter records before deletion
 - parameters: Optional parameters to bind to the query (e.g. { "min_age": 25, "name_filter": "John" })
 
 Examples:
-- delete("person")  # Deletes all records from person table
-- delete("person", Some("age < 18"))  # Deletes records where age < 18
-- delete("article", Some("published = false"))  # Deletes unpublished articles
-- delete("user", Some("last_login < '2024-01-01'"))  # Deletes inactive users
-- delete("person", Some("age > $min_age AND name CONTAINS $name_filter"), Some({ "min_age": 25, "name_filter": "John" }))  # Parameterized query
+- delete(["person"])  # Deletes all records from person table
+- delete(["person:john"])  # Deletes specific record
+- delete(["person", "article"])  # Deletes all records from multiple tables
+- delete(["person"], Some("age < 18"))  # Deletes records where age < 18
+- delete(["article"], Some("published = false"))  # Deletes unpublished articles
+- delete(["user"], Some("last_login < '2024-01-01'"))  # Deletes inactive users
+- delete(["person"], Some("age > $min_age AND name CONTAINS $name_filter"), Some({ "min_age": 25, "name_filter": "John" }))  # Parameterized query
 "#)]
     pub async fn delete(
         &self,
         params: Parameters<DeleteParams>,
     ) -> Result<CallToolResult, McpError> {
         let DeleteParams {
-            table,
+            targets,
             where_clause,
             parameters,
         } = params.0;
         // Output debugging information
-        debug!("Deleting records in table: {table}");
+        debug!(targets = ?targets, "Deleting records");
         // Build the initial query string
-        let mut query = "DELETE FROM type::table($table)".to_string();
+        let mut query = "DELETE FROM ".to_string();
+        // Process the tables and Record IDs
+        query.push_str(&parse_targets(targets).map_err(|e| McpError::internal_error(e, None))?);
         // Add the where clause if provided
         if let Some(v) = where_clause {
             query.push_str(&format!(" WHERE {v}"));
@@ -571,15 +599,11 @@ Examples:
         // Add user-provided parameters if any
         if let Some(variables) = parameters {
             for (key, val) in variables {
-                let val = convert_to_surreal_value(val, &key)
+                let val = convert_json_to_surreal(val, &key)
                     .map_err(|e| McpError::internal_error(e, None))?;
                 params.insert(key, val);
             }
         }
-        // Add the table name as a parameter
-        let table = convert_to_surreal_value(table, "table")
-            .map_err(|e| McpError::internal_error(e, None))?;
-        params.insert("table".to_string(), table);
         // Output debugging information
         trace!("Deleting records with query: {query}");
         // Execute the final query
@@ -733,13 +757,14 @@ during your session. The endpoint can be any supported SurrealDB engine type inc
 memory (for testing), file-based storage, distributed storage, or remote connections.
 
 Each client connection is completely isolated, so you can switch between different 
-databases as needed.
+databases as needed. The connection is persistent until you disconnect or connect to 
+a different endpoint. The username and password are optional.
 
 Examples:
-- connect_endpoint('memory', None, None, None, None)  # For testing
-- connect_endpoint('file:/tmp/mydb', Some('myapp'), Some('production'), None, None)  # Local file storage
+- connect_endpoint('memory')  # For testing
+- connect_endpoint('file:/tmp/mydb', Some('myapp'), Some('production'))  # Local file storage
 - connect_endpoint('ws://localhost:8000', Some('myapp'), Some('production'), Some('root'), Some('password'))  # Remote connection
-- connect_endpoint('rocksdb:/data/mydb', Some('analytics'), Some('events'), None, None)  # High-performance local storage
+- connect_endpoint('rocksdb:/data/mydb', Some('analytics'), Some('events'))  # High-performance local storage
 "#)]
     pub async fn connect_endpoint(
         &self,
