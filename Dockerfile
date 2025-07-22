@@ -57,4 +57,6 @@ FROM cgr.dev/chainguard/glibc-dynamic:latest AS prod
 
 COPY --from=build-release /surrealmcp/surrealmcp /surrealmcp
 
+USER 65532
+
 ENTRYPOINT ["/surrealmcp"]
