@@ -68,13 +68,27 @@ pub fn convert_json_to_surreal(
         .map_err(|e| format!("Failed to convert parameter '{name}': {e}"))
 }
 
+/// Parse a single item into a SurrealQL Value
+///
+/// This function takes a single string and attempts to parse it into a SurrealQL Value.
+/// If a string cannot be parsed as a SurrealQL Value, an error is returned.
+///
+/// # Arguments
+/// * `value` - A vector of strings to parse
+pub fn parse_target(value: String) -> Result<String, String> {
+    match surrealdb::Value::from_str(&value) {
+        Ok(val) => Ok(val.to_string()),
+        Err(e) => Err(format!("Failed to parse SurrealQL Value {value}: {e}")),
+    }
+}
+
 /// Parse a list of items into a list of SurrealQL Values
 ///
 /// This function takes a list of strings and attempts to parse them into SurrealQL Values.
 /// If a string cannot be parsed as a SurrealQL Value, an error is returned.
 ///
 /// # Arguments
-/// * `what` - A vector of strings to parse
+/// * `value` - A vector of strings to parse
 pub fn parse_targets(values: Vec<String>) -> Result<String, String> {
     // Create a new vec to store parsed values
     let mut items = Vec::new();

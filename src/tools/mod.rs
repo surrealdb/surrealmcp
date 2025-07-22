@@ -18,7 +18,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::db;
-use crate::utils::{convert_json_to_surreal, parse_targets};
+use crate::utils::{convert_json_to_surreal, parse_target, parse_targets};
 
 // Global metrics
 static QUERY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -49,6 +49,18 @@ pub struct SelectParams {
     pub start_clause: Option<String>,
     #[schemars(description = "Optional parameters to bind to the query.")]
     pub parameters: Option<HashMap<String, serde_json::Value>>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct InsertParams {
+    #[schemars(description = "The table name into which we will insert data.")]
+    pub target: String,
+    #[schemars(description = "Whether to ignore duplicate records (INSERT IGNORE).")]
+    pub ignore: Option<bool>,
+    #[schemars(description = "Whether this is a relation table insert (INSERT RELATION).")]
+    pub relation: Option<bool>,
+    #[schemars(description = "Array of JSON objects to be inserted as record content.")]
+    pub values: Vec<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -413,6 +425,75 @@ Examples:
         }
         // Output debugging information
         trace!("Selecting records with query: {query}");
+        // Execute the final query
+        self.query_internal(query, Some(params)).await
+    }
+
+    /// Insert new records into the specified tables or with specific record IDs.
+    ///
+    /// This function executes a SurrealDB INSERT statement to insert new records
+    /// into the specified tables or with specific record IDs. The data is provided
+    /// as a JSON value and will be used as the content for the new records.
+    /// The INSERT statement is similar to CREATE but with different syntax.
+    #[tool(description = r#"
+Insert new records into the specified table or with specific record ID.
+
+This function executes a SurrealDB INSERT statement to insert new records into the 
+specified table or with specific record ID. The data is provided as an array of JSON objects 
+and will be used as the content for the new records.
+
+Parameters:
+- target: A single table name to insert into (e.g. "person")
+- values: Array of JSON objects to insert (e.g. [{"name": "Tobie", "age": 38}, {"name": "Jaime", "age": 40}])
+- ignore: Optional boolean to ignore duplicate records (IGNORE keyword)
+- relation: Optional boolean to insert into a relation table (RELATION keyword)
+
+This is useful for batch inserting multiple records at once into a table.
+The INSERT statement uses the syntax: INSERT [ IGNORE | RELATION ] INTO table [obj1, obj2, ...]
+
+Examples:
+- insert("person", [{"name": "Tobie", "age": 38}, {"name": "Jaime", "age": 40}])
+- insert("article", [{"id": "article:123", "title": "New Article", "content": "Hello World"}])
+- insert("person", [{"id": "jaime", "name": "Jaime"}], Some(true))  # With IGNORE
+- insert("likes", [{"in": "person:1", "out": "person:2"}], None, Some(true))  # Relation table
+"#)]
+    pub async fn insert(
+        &self,
+        params: Parameters<InsertParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let InsertParams {
+            target,
+            values,
+            ignore,
+            relation,
+        } = params.0;
+        // Output debugging information
+        debug!(target = %target, "Inserting records");
+        // Build the initial query string
+        let mut query = "INSERT ".to_string();
+        // Add IGNORE keyword if specified
+        if ignore.unwrap_or(false) {
+            query.push_str("IGNORE ");
+        }
+        // Add RELATION keyword if specified
+        if relation.unwrap_or(false) {
+            query.push_str("RELATION ");
+        }
+        query.push_str("INTO ");
+        // Process the table and Record ID
+        query.push_str(&parse_target(target).map_err(|e| McpError::internal_error(e, None))?);
+        // Add the data content clause
+        query.push_str(" $data");
+        // Create parameters with native SurrealDB types
+        let mut params = HashMap::new();
+        // Add the record data
+        let values_array: Vec<serde_json::Value> =
+            values.into_iter().map(serde_json::Value::Object).collect();
+        let data = convert_json_to_surreal(serde_json::Value::Array(values_array), "data")
+            .map_err(|e| McpError::internal_error(e, None))?;
+        params.insert("data".to_string(), data);
+        // Output debugging information
+        trace!("Inserting records with query: {query}");
         // Execute the final query
         self.query_internal(query, Some(params)).await
     }
