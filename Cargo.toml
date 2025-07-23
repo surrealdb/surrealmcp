@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 axum = "0.8"
-axum-extra = { version = "0.9", features = ["typed-header"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
 clap = { version = "4", features = ["derive", "env"] }
 governor = "0.8"
 jsonwebtoken = "9"
