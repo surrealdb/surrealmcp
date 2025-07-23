@@ -10,7 +10,7 @@ axum-extra = { version = "0.9", features = ["typed-header"] }
 clap = { version = "4", features = ["derive", "env"] }
 governor = "0.8"
 jsonwebtoken = "9"
-metrics = "0.21"
+metrics = "0.24"
 metrics-exporter-prometheus = "0.12"
 rand = "0.8"
 rmcp = { version = "0.2.1", features = [
