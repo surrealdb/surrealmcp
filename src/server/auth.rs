@@ -16,8 +16,8 @@ pub async fn require_bearer_auth(
 ) -> Result<Response, StatusCode> {
     // Get the current request path
     let path = req.uri().path();
-    // Allow access to auth metadata
-    if path.starts_with("/.well-known/") {
+    // Allow access to auth metadata and health check endpoint
+    if path.starts_with("/.well-known/") || path == "/health" {
         return Ok(next.run(req).await);
     }
     // Check for an Authorization header
