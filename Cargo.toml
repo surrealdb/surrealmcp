@@ -8,7 +8,7 @@ anyhow = "1"
 axum = "0.8"
 axum-extra = { version = "0.9", features = ["typed-header"] }
 clap = { version = "4", features = ["derive", "env"] }
-governor = "0.8"
+governor = "0.10"
 jsonwebtoken = "9"
 metrics = "0.21"
 metrics-exporter-prometheus = "0.12"
