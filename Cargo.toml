@@ -19,7 +19,7 @@ rmcp = { version = "0.2.1", features = [
     "transport-streamable-http-server",
     "transport-worker",
 ] }
-schemars = "0.8"
+schemars = "1.0"
 serde = { version = "1", features = ["derive"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["trace", "cors"] }
