@@ -103,8 +103,8 @@ pub fn create_rate_limit_layer(
             // Output debugging information
             warn!("Rate limit exceeded: {e}");
             // Increment rate limit error metrics
-            counter!("surrealmcp.total_errors", 1);
-            counter!("surrealmcp.total_rate_limit_errors", 1);
+            counter!("surrealmcp.total_errors").increment(1);
+            counter!("surrealmcp.total_rate_limit_errors").increment(1);
             // Return the error response
             Response::builder()
                 .status(StatusCode::TOO_MANY_REQUESTS)

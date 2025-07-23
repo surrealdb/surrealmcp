@@ -35,12 +35,12 @@ pub fn init_logging_and_metrics(stdio: bool) {
     // Output debugging information
     info!("Logging and tracing initialized");
     // Initialize metrics with default values
-    gauge!("surrealmcp.active_connections", 0.0);
-    counter!("surrealmcp.total_connections", 0);
-    counter!("surrealmcp.total_queries", 0);
-    counter!("surrealmcp.total_errors", 0);
-    counter!("surrealmcp.total_query_errors", 0);
-    counter!("surrealmcp.total_rate_limit_errors", 0);
+    gauge!("surrealmcp.active_connections").set(0.0);
+    counter!("surrealmcp.total_connections").absolute(0);
+    counter!("surrealmcp.total_queries").absolute(0);
+    counter!("surrealmcp.total_errors").absolute(0);
+    counter!("surrealmcp.total_query_errors").absolute(0);
+    counter!("surrealmcp.total_rate_limit_errors").absolute(0);
     // Output debugging information
     info!("Metrics collection initialized");
 }

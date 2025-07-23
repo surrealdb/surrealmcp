@@ -1,7 +1,7 @@
 use anyhow::Result;
 use metrics::{counter, histogram};
 use rmcp::{
-    Error as McpError, RoleServer, ServerHandler,
+    ErrorData as McpError, RoleServer, ServerHandler,
     handler::server::router::tool::ToolRouter,
     handler::server::tool::Parameters,
     model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
@@ -1117,7 +1117,7 @@ Examples:
                     "Failed to connect to SurrealDB endpoint"
                 );
                 // Increment error metrics
-                counter!("surrealmcp.total_errors", 1);
+                counter!("surrealmcp.total_errors").increment(1);
                 // Return error message
                 Err(McpError::internal_error(
                     format!("Failed to connect to endpoint '{endpoint}': {e}"),
@@ -1214,7 +1214,7 @@ Examples:
                             "Failed to change namespace"
                         );
                         // Increment error metrics
-                        counter!("surrealmcp.total_errors", 1);
+                        counter!("surrealmcp.total_errors").increment(1);
                         // Return error message
                         Err(McpError::internal_error(
                             format!("Failed to change namespace to '{namespace}': {e}"),
@@ -1327,7 +1327,7 @@ Examples:
                             "Failed to change database"
                         );
                         // Increment error metrics
-                        counter!("surrealmcp.total_errors", 1);
+                        counter!("surrealmcp.total_errors").increment(1);
                         // Return error message
                         Err(McpError::internal_error(
                             format!("Failed to change database to '{database}': {e}"),
@@ -1440,9 +1440,10 @@ This is useful when you want to:
                             "Query execution succeeded"
                         );
                         // Update the total queries metric
-                        counter!("surrealmcp.total_queries", 1);
+                        counter!("surrealmcp.total_queries").increment(1);
                         // Update the query duration metric
-                        histogram!("surrealmcp.query_duration_ms", duration.as_millis() as f64);
+                        histogram!("surrealmcp.query_duration_ms")
+                            .record(duration.as_millis() as f64);
                         // Return success message
                         Ok(CallToolResult::success(vec![Content::text(text)]))
                     }
@@ -1459,10 +1460,11 @@ This is useful when you want to:
                             "Query execution failed"
                         );
                         // Update the error count metrics
-                        counter!("surrealmcp.total_errors", 1);
-                        counter!("surrealmcp.total_query_errors", 1);
+                        counter!("surrealmcp.total_errors").increment(1);
+                        counter!("surrealmcp.total_query_errors").increment(1);
                         // Update the query duration metric
-                        histogram!("surrealmcp.query_duration_ms", duration.as_millis() as f64);
+                        histogram!("surrealmcp.query_duration_ms")
+                            .record(duration.as_millis() as f64);
                         // Return error message
                         Err(McpError::internal_error(e.to_string(), None))
                     }
@@ -1477,8 +1479,8 @@ This is useful when you want to:
                     "Query attempted without database connection"
                 );
                 // Update the query errors metric
-                counter!("surrealmcp.total_errors", 1);
-                counter!("surrealmcp.total_query_errors", 1);
+                counter!("surrealmcp.total_errors").increment(1);
+                counter!("surrealmcp.total_query_errors").increment(1);
                 // Return error message
                 Err(McpError::internal_error(
                     "Not connected to any SurrealDB endpoint. Use connect_endpoint first."

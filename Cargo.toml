@@ -6,26 +6,25 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 axum = "0.8"
-axum-extra = { version = "0.9", features = ["typed-header"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
 clap = { version = "4", features = ["derive", "env"] }
 governor = "0.8"
 jsonwebtoken = "9"
-metrics = "0.21"
-metrics-exporter-prometheus = "0.12"
-rand = "0.8"
-rmcp = { version = "0.2.1", features = [
+metrics = "0.24"
+rand = "0.9"
+rmcp = { version = "0.3.0", features = [
     "server",
     "macros",
     "transport-streamable-http-server",
     "transport-worker",
 ] }
-schemars = "0.8"
+schemars = "1.0"
 serde = { version = "1", features = ["derive"] }
-tower = "0.4"
-tower-http = { version = "0.5", features = ["trace", "cors"] }
-tower_governor = "0.6"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+tower_governor = "0.7"
 serde_json = "1"
-surrealdb = { version = "2.3.3", features = [
+surrealdb = { version = "2.3.7", features = [
     "rustls",
     "kv-mem",
     "kv-rocksdb",

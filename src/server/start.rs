@@ -175,8 +175,8 @@ async fn start_unix_server(config: ServerConfig) -> Result<()> {
         // Update connection metrics
         let active_connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
         let total_connections = TOTAL_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
-        gauge!("surrealmcp.active_connections", active_connections as f64);
-        counter!("surrealmcp.total_connections", 1);
+        gauge!("surrealmcp.active_connections").set(active_connections as f64);
+        counter!("surrealmcp.total_connections").increment(1);
         // Output debugging information
         info!(
             connection_id = %connection_id,
@@ -224,7 +224,7 @@ async fn start_unix_server(config: ServerConfig) -> Result<()> {
                     let _ = server.waiting().await;
                     // Update metrics when connection closes
                     let active_connections = ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
-                    gauge!("surrealmcp.active_connections", active_connections as f64);
+                    gauge!("surrealmcp.active_connections").set(active_connections as f64);
                     // Output debugging information
                     info!(
                         connection_id = %service.connection_id,
@@ -242,7 +242,7 @@ async fn start_unix_server(config: ServerConfig) -> Result<()> {
                     );
                     // Update metrics when connection fails
                     let active_connections = ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
-                    gauge!("surrealmcp.active_connections", active_connections as f64);
+                    gauge!("surrealmcp.active_connections").set(active_connections as f64);
                 }
             }
         });
