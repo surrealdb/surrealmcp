@@ -1,5 +1,5 @@
 use anyhow::Result;
-use metrics::{counter, histogram};
+use metrics::counter;
 use rmcp::{
     ErrorData as McpError, RoleServer, ServerHandler,
     handler::server::router::tool::ToolRouter,
@@ -18,6 +18,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::db;
+use crate::engine;
 use crate::utils::{convert_json_to_surreal, parse_target, parse_targets};
 
 // Global metrics
@@ -1087,6 +1088,7 @@ Examples:
         .await
         {
             Ok(instance) => {
+                // Calculate the elapsed time
                 let duration = start_time.elapsed();
                 // Update the service's database connection
                 let mut db_guard = self.db.lock().await;
@@ -1105,6 +1107,7 @@ Examples:
                 Ok(CallToolResult::success(vec![Content::text(msg)]))
             }
             Err(e) => {
+                // Calculate the elapsed time
                 let duration = start_time.elapsed();
                 // Output debugging information
                 error!(
@@ -1401,70 +1404,31 @@ This is useful when you want to:
         query_string: String,
         parameters: Option<HashMap<String, Value>>,
     ) -> Result<CallToolResult, McpError> {
-        let start_time = Instant::now();
+        // Increment the query counter
         let query_id = QUERY_COUNTER.fetch_add(1, Ordering::SeqCst);
-        // Output debugging information
-        debug!(
-            connection_id = %self.connection_id,
-            query_id,
-            query = %query_string,
-            "Executing SurrealQL query"
-        );
         // Lock the database connection
         let db_guard = self.db.lock().await;
         // Match the database connection
         match &*db_guard {
             Some(db) => {
-                // Build the query string
-                let mut query_builder = db.query(&query_string);
-                // Bind any parameters
-                if let Some(params) = parameters {
-                    for (key, value) in params {
-                        query_builder = query_builder.bind((key, value));
-                    }
-                }
-                // Execute the query
-                match query_builder.await {
-                    Ok(res) => {
-                        // Get the duration of the query
-                        let duration = start_time.elapsed();
-                        // Format the result as text
-                        let text = format!("{res:?}");
-                        // Output debugging information
-                        info!(
-                            connection_id = %self.connection_id,
-                            query_id,
-                            query = %query_string,
-                            duration_ms = duration.as_millis(),
-                            result_length = text.len(),
-                            "Query execution succeeded"
-                        );
-                        // Update the total queries metric
-                        counter!("surrealmcp.total_queries").increment(1);
-                        // Update the query duration metric
-                        histogram!("surrealmcp.query_duration_ms")
-                            .record(duration.as_millis() as f64);
-                        // Return success message
-                        Ok(CallToolResult::success(vec![Content::text(text)]))
+                // Execute the query on the engine
+                let res = engine::execute_query(
+                    db,
+                    query_id,
+                    query_string,
+                    parameters,
+                    &self.connection_id,
+                )
+                .await;
+                // Check the result of the query
+                match res {
+                    Ok(response) => {
+                        // Convert response to MCP result
+                        response.to_mcp_result()
                     }
                     Err(e) => {
-                        // Get the duration of the query
-                        let duration = start_time.elapsed();
-                        // Output debugging information
-                        error!(
-                            connection_id = %self.connection_id,
-                            query_id,
-                            query = %query_string,
-                            duration_ms = duration.as_millis(),
-                            error = %e,
-                            "Query execution failed"
-                        );
-                        // Update the error count metrics
-                        counter!("surrealmcp.total_errors").increment(1);
-                        counter!("surrealmcp.total_query_errors").increment(1);
-                        // Update the query duration metric
-                        histogram!("surrealmcp.query_duration_ms")
-                            .record(duration.as_millis() as f64);
+                        // Update error metrics for engine-level errors (not query execution errors)
+                        counter!("surrealmcp.total_engine_errors").increment(1);
                         // Return error message
                         Err(McpError::internal_error(e.to_string(), None))
                     }
@@ -1480,7 +1444,6 @@ This is useful when you want to:
                 );
                 // Update the query errors metric
                 counter!("surrealmcp.total_errors").increment(1);
-                counter!("surrealmcp.total_query_errors").increment(1);
                 // Return error message
                 Err(McpError::internal_error(
                     "Not connected to any SurrealDB endpoint. Use connect_endpoint first."

@@ -4,6 +4,7 @@ use clap::Parser;
 
 mod cli;
 mod db;
+mod engine;
 mod logs;
 mod server;
 mod tools;
