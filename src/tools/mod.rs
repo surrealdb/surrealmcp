@@ -313,6 +313,10 @@ Parameterized query examples:
             query: query_string,
             parameters,
         } = params.0;
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.query").increment(1);
+        // Output debugging information
+        debug!(query_string = %query_string, "Executing SurrealQL query");
         // Convert tool parameters to SurrealQL parameters
         let parameters = if let Some(params) = parameters {
             let mut converted = HashMap::new();
@@ -383,7 +387,8 @@ Examples:
             start_clause,
             parameters,
         } = params.0;
-
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.select").increment(1);
         // Output debugging information
         debug!(targets = ?targets, "Selecting records");
         // Build the initial query string
@@ -468,6 +473,8 @@ Examples:
             ignore,
             relation,
         } = params.0;
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.insert").increment(1);
         // Output debugging information
         debug!(target = %target, "Inserting records");
         // Build the initial query string
@@ -523,6 +530,8 @@ This is useful for creating users, articles, products, or any other entities in 
         params: Parameters<CreateParams>,
     ) -> Result<CallToolResult, McpError> {
         let CreateParams { targets, data } = params.0;
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.create").increment(1);
         // Output debugging information
         debug!(targets = ?targets, "Creating records");
         // Build the initial query string
@@ -584,6 +593,8 @@ Examples:
             where_clause,
             parameters,
         } = params.0;
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.upsert").increment(1);
         // Output debugging information
         debug!(targets = ?targets, "Upserting records");
         // Create parameters with native SurrealDB types
@@ -699,6 +710,8 @@ Examples:
             where_clause,
             parameters,
         } = params.0;
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.update").increment(1);
         // Output debugging information
         debug!(targets = ?targets, "Updating records");
         // Create parameters with native SurrealDB types
@@ -805,6 +818,8 @@ Examples:
             where_clause,
             parameters,
         } = params.0;
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.delete").increment(1);
         // Output debugging information
         debug!(targets = ?targets, "Deleting records");
         // Build the initial query string
@@ -864,6 +879,9 @@ Examples:
             to_id,
             content,
         } = params.0;
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.relate").increment(1);
+        // Output debugging information
         debug!(
             "Creating relationship: {} -> {} -> {}",
             from_id, relationship_type, to_id
@@ -884,6 +902,9 @@ Examples:
 
     #[tool(description = "List SurrealDB Cloud organizations")]
     pub async fn list_cloud_organizations(&self) -> Result<CallToolResult, McpError> {
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.list_cloud_organizations").increment(1);
+        // Output debugging information
         debug!("Listing cloud organizations");
         let msg = "list_cloud_organizations not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
@@ -895,6 +916,9 @@ Examples:
         params: Parameters<CloudOrganizationParams>,
     ) -> Result<CallToolResult, McpError> {
         let CloudOrganizationParams { organization_id } = params.0;
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.list_cloud_instances").increment(1);
+        // Output debugging information
         debug!("Listing cloud instances for organization: {organization_id}");
         let msg = "list_cloud_instances not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
@@ -906,6 +930,9 @@ Examples:
         params: Parameters<CloudInstanceParams>,
     ) -> Result<CallToolResult, McpError> {
         let CloudInstanceParams { instance_id } = params.0;
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.pause_cloud_instance").increment(1);
+        // Output debugging information
         debug!("Pausing cloud instance: {instance_id}");
         let msg = "pause_cloud_instance not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
@@ -917,6 +944,9 @@ Examples:
         params: Parameters<CloudInstanceParams>,
     ) -> Result<CallToolResult, McpError> {
         let CloudInstanceParams { instance_id } = params.0;
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.resume_cloud_instance").increment(1);
+        // Output debugging information
         debug!("Resuming cloud instance: {instance_id}");
         let msg = "resume_cloud_instance not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
@@ -928,6 +958,9 @@ Examples:
         params: Parameters<CloudInstanceParams>,
     ) -> Result<CallToolResult, McpError> {
         let CloudInstanceParams { instance_id } = params.0;
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.get_cloud_instance_status").increment(1);
+        // Output debugging information
         debug!("Getting status for cloud instance: {instance_id}");
         let msg = "get_cloud_instance_status not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
@@ -939,6 +972,9 @@ Examples:
         params: Parameters<CloudInstanceParams>,
     ) -> Result<CallToolResult, McpError> {
         let CloudInstanceParams { instance_id } = params.0;
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.get_cloud_instance_metrics").increment(1);
+        // Output debugging information
         debug!("Getting metrics for cloud instance: {instance_id}");
         let msg = "get_cloud_instance_metrics not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
@@ -953,6 +989,9 @@ Examples:
             name,
             organization_id,
         } = params.0;
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.create_cloud_instance").increment(1);
+        // Output debugging information
         debug!("Creating cloud instance: {name} in organization: {organization_id}");
         let msg = "create_cloud_instance not implemented".to_string();
         Ok(CallToolResult::success(vec![Content::text(msg)]))
@@ -998,7 +1037,10 @@ Examples:
             username,
             password,
         } = params.0;
+        // Start the measurement timer
         let start_time = Instant::now();
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.connect_endpoint").increment(1);
         // Output debugging information
         info!(
             connection_id = %self.connection_id,
@@ -1018,6 +1060,10 @@ Examples:
                     configured_endpoint = %configured_endpoint,
                     "Connection rejected: endpoint not allowed by server configuration"
                 );
+                // Increment error metrics
+                counter!("surrealmcp.total_errors").increment(1);
+                counter!("surrealmcp.total_configuration_errors").increment(1);
+                counter!("surrealmcp.errors.connect_endpoint").increment(1);
                 // Return error message
                 return Err(McpError::internal_error(
                     format!(
@@ -1121,6 +1167,8 @@ Examples:
                 );
                 // Increment error metrics
                 counter!("surrealmcp.total_errors").increment(1);
+                counter!("surrealmcp.total_connection_errors").increment(1);
+                counter!("surrealmcp.errors.connect_endpoint").increment(1);
                 // Return error message
                 Err(McpError::internal_error(
                     format!("Failed to connect to endpoint '{endpoint}': {e}"),
@@ -1160,7 +1208,10 @@ Examples:
         params: Parameters<UseNamespaceParams>,
     ) -> Result<CallToolResult, McpError> {
         let UseNamespaceParams { namespace } = params.0;
+        // Start the measurement timer
         let start_time = Instant::now();
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.use_namespace").increment(1);
         // Output debugging information
         info!(
             connection_id = %self.connection_id,
@@ -1177,6 +1228,10 @@ Examples:
                     configured_namespace = %configured_namespace,
                     "Namespace change rejected: namespace not allowed by server configuration"
                 );
+                // Increment error metrics
+                counter!("surrealmcp.total_errors").increment(1);
+                counter!("surrealmcp.total_configuration_errors").increment(1);
+                counter!("surrealmcp.errors.use_namespace").increment(1);
                 // Return error message
                 return Err(McpError::internal_error(
                     format!(
@@ -1218,6 +1273,8 @@ Examples:
                         );
                         // Increment error metrics
                         counter!("surrealmcp.total_errors").increment(1);
+                        counter!("surrealmcp.total_connection_errors").increment(1);
+                        counter!("surrealmcp.errors.use_namespace").increment(1);
                         // Return error message
                         Err(McpError::internal_error(
                             format!("Failed to change namespace to '{namespace}': {e}"),
@@ -1233,6 +1290,10 @@ Examples:
                     namespace = %namespace,
                     "Namespace change attempted without database connection"
                 );
+                // Increment error metrics
+                counter!("surrealmcp.total_errors").increment(1);
+                counter!("surrealmcp.total_configuration_errors").increment(1);
+                counter!("surrealmcp.errors.no_connection").increment(1);
                 // Return error message
                 Err(McpError::internal_error(
                     "Not connected to any SurrealDB endpoint. Use connect_endpoint first."
@@ -1273,7 +1334,10 @@ Examples:
         params: Parameters<UseDatabaseParams>,
     ) -> Result<CallToolResult, McpError> {
         let UseDatabaseParams { database } = params.0;
+        // Start the measurement timer
         let start_time = Instant::now();
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.use_database").increment(1);
         // Output debugging information
         info!(
             connection_id = %self.connection_id,
@@ -1290,6 +1354,10 @@ Examples:
                     configured_database = %configured_database,
                     "Database change rejected: database not allowed by server configuration"
                 );
+                // Increment error metrics
+                counter!("surrealmcp.total_errors").increment(1);
+                counter!("surrealmcp.total_configuration_errors").increment(1);
+                counter!("surrealmcp.errors.use_database").increment(1);
                 // Return error message
                 return Err(McpError::internal_error(
                     format!(
@@ -1331,6 +1399,8 @@ Examples:
                         );
                         // Increment error metrics
                         counter!("surrealmcp.total_errors").increment(1);
+                        counter!("surrealmcp.total_connection_errors").increment(1);
+                        counter!("surrealmcp.errors.use_database").increment(1);
                         // Return error message
                         Err(McpError::internal_error(
                             format!("Failed to change database to '{database}': {e}"),
@@ -1346,6 +1416,10 @@ Examples:
                     database = %database,
                     "Database change attempted without database connection"
                 );
+                // Increment error metrics
+                counter!("surrealmcp.total_errors").increment(1);
+                counter!("surrealmcp.total_configuration_errors").increment(1);
+                counter!("surrealmcp.errors.no_connection").increment(1);
                 // Return error message
                 Err(McpError::internal_error(
                     "Not connected to any SurrealDB endpoint. Use connect_endpoint first."
@@ -1374,6 +1448,8 @@ This is useful when you want to:
 - Ensure no active connections remain
 "#)]
     pub async fn disconnect_endpoint(&self) -> Result<CallToolResult, McpError> {
+        // Increment tool usage metrics
+        counter!("surrealmcp.tools.disconnect_endpoint").increment(1);
         // Output debugging information
         info!(
             connection_id = %self.connection_id,
@@ -1427,9 +1503,7 @@ This is useful when you want to:
                         response.to_mcp_result()
                     }
                     Err(e) => {
-                        // Update error metrics for engine-level errors (not query execution errors)
-                        counter!("surrealmcp.total_engine_errors").increment(1);
-                        // Return error message
+                        // Return the received error message
                         Err(McpError::internal_error(e.to_string(), None))
                     }
                 }
@@ -1444,6 +1518,8 @@ This is useful when you want to:
                 );
                 // Update the query errors metric
                 counter!("surrealmcp.total_errors").increment(1);
+                counter!("surrealmcp.total_configuration_errors").increment(1);
+                counter!("surrealmcp.errors.no_connection").increment(1);
                 // Return error message
                 Err(McpError::internal_error(
                     "Not connected to any SurrealDB endpoint. Use connect_endpoint first."
@@ -1495,6 +1571,10 @@ This is useful when you want to:
                         error = %e,
                         "Failed to initialize database connection"
                     );
+                    // Increment error metrics
+                    counter!("surrealmcp.total_errors").increment(1);
+                    counter!("surrealmcp.total_connection_errors").increment(1);
+                    counter!("surrealmcp.errors.connect_endpoint").increment(1);
                     // Return error message
                     return Err(e);
                 }
