@@ -4270,6 +4270,7 @@ dependencies = [
  "anyhow",
  "axum",
  "axum-extra",
+ "base64 0.22.1",
  "clap",
  "governor",
  "jsonwebtoken",
