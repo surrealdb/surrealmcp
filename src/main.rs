@@ -28,7 +28,9 @@ async fn main() -> Result<()> {
             auth_disabled,
             rate_limit_rps,
             rate_limit_burst,
-            cloud_auth_server,
+            auth_server,
+            auth_audience,
+            jwe_decryption_key,
         } => {
             // Create the server config
             let config = ServerConfig {
@@ -43,7 +45,9 @@ async fn main() -> Result<()> {
                 auth_disabled,
                 rate_limit_rps,
                 rate_limit_burst,
-                cloud_auth_server,
+                auth_server,
+                auth_audience,
+                jwe_decryption_key,
             };
             server::start_server(config).await
         }

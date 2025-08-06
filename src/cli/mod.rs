@@ -41,7 +41,7 @@ pub enum Commands {
         #[arg(long, env = "SURREAL_MCP_RATE_LIMIT_BURST", default_value = "200")]
         rate_limit_burst: u32,
         /// Whether to require authentication for the MCP server
-        #[arg(long, env = "SURREAL_MCP_AUTH_REQUIRED", default_value = "false")]
+        #[arg(long, env = "SURREAL_MCP_AUTH_DISABLED", default_value = "false")]
         auth_disabled: bool,
         /// The URL address that the MCP server is accessible at
         #[arg(
@@ -53,9 +53,19 @@ pub enum Commands {
         /// The SurrealDB Cloud authentication server URL
         #[arg(
             long,
-            env = "SURREAL_CLOUD_AUTH_SERVER",
+            env = "SURREAL_MCP_AUTH_SERVER",
             default_value = "https://auth.surrealdb.com"
         )]
-        cloud_auth_server: String,
+        auth_server: String,
+        /// The expected audience for authentication tokens
+        #[arg(
+            long,
+            env = "SURREAL_MCP_AUTH_AUDIENCE",
+            default_value = "https://mcp.surrealdb.com/"
+        )]
+        auth_audience: String,
+        /// Base64-encoded key for JWE decryption
+        #[arg(long, env = "SURREAL_MCP_JWE_DECRYPTION_KEY")]
+        jwe_decryption_key: Option<String>,
     },
 }
