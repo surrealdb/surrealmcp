@@ -4,28 +4,28 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1"
-axum = "0.8"
-axum-extra = { version = "0.10", features = ["typed-header"] }
+anyhow = "1.0.98"
+axum = "0.8.4"
+axum-extra = { version = "0.10.1", features = ["typed-header"] }
 base64 = "0.22.1"
-clap = { version = "4", features = ["derive", "env"] }
+clap = { version = "4.5.42", features = ["derive", "env"] }
 governor = "0.8"
-josekit = "0.10"
-jsonwebtoken = "9"
-metrics = "0.24"
-rand = "0.9"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
-ring = "0.17"
-rmcp = { version = "0.3.0", features = [
+josekit = "0.10.3"
+jsonwebtoken = "9.3.1"
+metrics = "0.24.2"
+rand = "0.9.2"
+reqwest = { version = "0.12.22", features = ["json", "rustls-tls"] }
+ring = "0.17.14"
+rmcp = { version = "0.4.0", features = [
     "server",
     "macros",
     "transport-streamable-http-server",
     "transport-worker",
 ] }
-rustls = "0.23"
-schemars = "1.0"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+rustls = "0.23.31"
+schemars = "1.0.4"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.142"
 surrealdb = { version = "2.3.7", features = [
     "rustls",
     "kv-mem",
@@ -35,10 +35,10 @@ surrealdb = { version = "2.3.7", features = [
     "protocol-http",
     "http",
 ] }
-tokio = { version = "1", features = ["full"] }
-tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "cors"] }
-tower_governor = "0.7"
-tracing = "0.1"
-tracing-appender = "0.2"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tokio = { version = "1.47.1", features = ["full"] }
+tower = "0.5.2"
+tower-http = { version = "0.6.6", features = ["trace", "cors"] }
+tower_governor = "0.7.0"
+tracing = "0.1.41"
+tracing-appender = "0.2.3"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
