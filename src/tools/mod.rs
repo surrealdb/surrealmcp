@@ -1,4 +1,5 @@
 use anyhow::Result;
+use http::request::Parts;
 use metrics::counter;
 use rmcp::{
     ErrorData as McpError, RoleServer, ServerHandler,
@@ -17,6 +18,7 @@ use surrealdb::{Surreal, Value, engine::any::Any};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::cloud::Client;
 use crate::db;
 use crate::engine;
 use crate::prompts;
@@ -134,6 +136,9 @@ pub struct RelateParams {
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
+pub struct CloudParams {}
+
+#[derive(Deserialize, schemars::JsonSchema)]
 pub struct CloudOrganizationParams {
     #[schemars(description = "ID of the SurrealDB Cloud organization")]
     pub organization_id: String,
@@ -199,6 +204,8 @@ pub struct SurrealService {
     pub connected_at: std::time::Instant,
     /// Router containing all available tools
     pub tool_router: ToolRouter<Self>,
+    /// Cloud client for SurrealDB Cloud operations
+    pub cloud_client: Arc<Client>,
 }
 
 #[tool_router]
@@ -227,6 +234,7 @@ impl SurrealService {
             pass: None,
             connected_at: Instant::now(),
             tool_router: Self::tool_router(),
+            cloud_client: Arc::new(Client::new()),
         }
     }
 
@@ -257,6 +265,7 @@ impl SurrealService {
             endpoint = endpoint.as_deref(),
             namespace = namespace.as_deref(),
             database = database.as_deref(),
+            has_bearer_token = false,
             "Creating new client session with config"
         );
         // Create a new service instance
@@ -270,6 +279,7 @@ impl SurrealService {
             pass,
             connected_at: Instant::now(),
             tool_router: Self::tool_router(),
+            cloud_client: Arc::new(Client::new()),
         }
     }
 
@@ -851,13 +861,42 @@ Examples:
     }
 
     #[tool(description = "List SurrealDB Cloud organizations")]
-    pub async fn list_cloud_organizations(&self) -> Result<CallToolResult, McpError> {
+    pub async fn list_cloud_organizations(
+        &self,
+        _params: Parameters<CloudParams>,
+    ) -> Result<CallToolResult, McpError> {
         // Increment tool usage counter
         counter!("surrealmcp.tools.list_cloud_organizations").increment(1);
         // Output debugging information
         debug!("Listing cloud organizations");
-        let msg = "list_cloud_organizations not implemented".to_string();
-        Ok(CallToolResult::success(vec![Content::text(msg)]))
+        // Fetch the cloud organisations
+        let organisations = self
+            .cloud_client
+            .list_organizations()
+            .await
+            .or_else(|e| Err(McpError::internal_error(e.to_string(), None)))?;
+        // Convert result to JSON
+        let organisations: Vec<serde_json::Value> = organisations
+            .into_iter()
+            .map(|org| {
+                serde_json::json!({
+                    "id": org.id,
+                    "name": org.name,
+                    "slug": org.slug,
+                    "created_at": org.created_at,
+                    "updated_at": org.updated_at
+                })
+            })
+            .collect();
+        // Create the result JSON
+        let result = serde_json::json!({
+            "organizations": organisations,
+            "count": organisations.len()
+        });
+        // Return the MCP result
+        Ok(CallToolResult::success(vec![Content::text(
+            result.to_string(),
+        )]))
     }
 
     #[tool(description = "List SurrealDB Cloud instances for a given organization")]
@@ -869,9 +908,38 @@ Examples:
         // Increment tool usage counter
         counter!("surrealmcp.tools.list_cloud_instances").increment(1);
         // Output debugging information
-        debug!("Listing cloud instances for organization: {organization_id}");
-        let msg = "list_cloud_instances not implemented".to_string();
-        Ok(CallToolResult::success(vec![Content::text(msg)]))
+        debug!(
+            organization_id = organization_id,
+            "Listing cloud instances for organization"
+        );
+        // Fetch the cloud instances
+        let instances = self
+            .cloud_client
+            .list_instances(&organization_id)
+            .await
+            .or_else(|e| Err(McpError::internal_error(e.to_string(), None)))?;
+        // Convert result to JSON
+        let instances: Vec<serde_json::Value> = instances
+            .into_iter()
+            .map(|instance| {
+                serde_json::json!({
+                    "id": instance.id,
+                    "name": instance.name,
+                    "status": instance.status,
+                    "created_at": instance.created_at,
+                    "updated_at": instance.updated_at
+                })
+            })
+            .collect();
+        // Create the result JSON
+        let result = serde_json::json!({
+            "instances": instances,
+            "count": instances.len()
+        });
+        // Return the MCP result
+        Ok(CallToolResult::success(vec![Content::text(
+            result.to_string(),
+        )]))
     }
 
     #[tool(description = "Pause SurrealDB Cloud instance")]
@@ -883,9 +951,22 @@ Examples:
         // Increment tool usage counter
         counter!("surrealmcp.tools.pause_cloud_instance").increment(1);
         // Output debugging information
-        debug!("Pausing cloud instance: {instance_id}");
-        let msg = "pause_cloud_instance not implemented".to_string();
-        Ok(CallToolResult::success(vec![Content::text(msg)]))
+        debug!(instance_id = instance_id, "Pausing cloud instance");
+        // Pause the cloud instance
+        let _ = self
+            .cloud_client
+            .pause_instance(&instance_id)
+            .await
+            .or_else(|e| Err(McpError::internal_error(e.to_string(), None)))?;
+        // Create the result JSON
+        let result = serde_json::json!({
+            "message": "Successfully paused cloud instance",
+            "instance_id": instance_id,
+        });
+        // Return the MCP result
+        Ok(CallToolResult::success(vec![Content::text(
+            result.to_string(),
+        )]))
     }
 
     #[tool(description = "Resume SurrealDB Cloud instance")]
@@ -897,9 +978,22 @@ Examples:
         // Increment tool usage counter
         counter!("surrealmcp.tools.resume_cloud_instance").increment(1);
         // Output debugging information
-        debug!("Resuming cloud instance: {instance_id}");
-        let msg = "resume_cloud_instance not implemented".to_string();
-        Ok(CallToolResult::success(vec![Content::text(msg)]))
+        debug!(instance_id = instance_id, "Resuming cloud instance");
+        // Pause the cloud instance
+        let _ = self
+            .cloud_client
+            .resume_instance(&instance_id)
+            .await
+            .or_else(|e| Err(McpError::internal_error(e.to_string(), None)))?;
+        // Create the result JSON
+        let result = serde_json::json!({
+            "message": "Successfully resumed cloud instance",
+            "instance_id": instance_id,
+        });
+        // Return the MCP result
+        Ok(CallToolResult::success(vec![Content::text(
+            result.to_string(),
+        )]))
     }
 
     #[tool(description = "Resume SurrealDB Cloud instance")]
@@ -912,8 +1006,21 @@ Examples:
         counter!("surrealmcp.tools.get_cloud_instance_status").increment(1);
         // Output debugging information
         debug!("Getting status for cloud instance: {instance_id}");
-        let msg = "get_cloud_instance_status not implemented".to_string();
-        Ok(CallToolResult::success(vec![Content::text(msg)]))
+        // Fetch the cloud instance status
+        let _ = self
+            .cloud_client
+            .get_instance_status(&instance_id)
+            .await
+            .or_else(|e| Err(McpError::internal_error(e.to_string(), None)))?;
+        // Create the result JSON
+        let result = serde_json::json!({
+            "message": "Successfully fetched status for cloud instance",
+            "instance_id": instance_id,
+        });
+        // Return the MCP result
+        Ok(CallToolResult::success(vec![Content::text(
+            result.to_string(),
+        )]))
     }
 
     #[tool(description = "Resume SurrealDB Cloud instance")]
@@ -943,8 +1050,27 @@ Examples:
         counter!("surrealmcp.tools.create_cloud_instance").increment(1);
         // Output debugging information
         debug!("Creating cloud instance: {name} in organization: {organization_id}");
-        let msg = "create_cloud_instance not implemented".to_string();
-        Ok(CallToolResult::success(vec![Content::text(msg)]))
+        // Fetch the cloud instance status
+        let instance = self
+            .cloud_client
+            .create_instance(&organization_id, &name)
+            .await
+            .or_else(|e| Err(McpError::internal_error(e.to_string(), None)))?;
+        // Create the result JSON
+        let result = serde_json::json!({
+            "message": "Successfully created cloud instance",
+            "instance": {
+                "id": instance.id,
+                "name": instance.name,
+                "status": instance.status,
+                "created_at": instance.created_at,
+                "updated_at": instance.updated_at
+            }
+        });
+        // Return the MCP result
+        Ok(CallToolResult::success(vec![Content::text(
+            result.to_string(),
+        )]))
     }
 
     /// Connect to a different SurrealDB endpoint.
@@ -1563,6 +1689,16 @@ impl ServerHandler for SurrealService {
         _ctx: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::InitializeResult, McpError> {
         debug!("Initializing MCP server");
+        // Get the bearer token from the extensions
+        if let Some(parts) = _ctx.extensions.get::<Parts>() {
+            if let Some(token) = parts.extensions.get::<String>() {
+                self.cloud_client
+                    .client_token
+                    .write()
+                    .await
+                    .replace(token.clone());
+            }
+        }
         // Initialize the connection using startup configuration
         if let Err(e) = self.initialize_connection().await {
             error!(

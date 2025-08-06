@@ -565,7 +565,8 @@ async fn validate_bearer_token(
 /// 1. Allows access to /.well-known/ and /health endpoints without authentication
 /// 2. Extracts the Bearer token from the Authorization header
 /// 3. Validates the token structure, issuer, and claims (where available)
-/// 4. Returns 401 Unauthorized with proper WWW-Authenticate header if validation fails
+/// 4. Stores the validated token in the context extensions for use by subsequent services
+/// 5. Returns 401 Unauthorized with proper WWW-Authenticate header if validation fails
 ///
 /// Security considerations:
 /// - Validates token structure and issuer
@@ -576,7 +577,7 @@ async fn validate_bearer_token(
 /// - Uses proper HTTP status codes and headers
 pub async fn require_bearer_auth(
     config: TokenValidationConfig,
-    req: Request<axum::body::Body>,
+    mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
     // Get the current request path
@@ -585,30 +586,33 @@ pub async fn require_bearer_auth(
     if path.starts_with("/.well-known/") || path == "/health" {
         return Ok(next.run(req).await);
     }
-    // Check for an Authorization header
-    let auth_header = req
+    // Extract the bearer token from the Authorization header
+    let bearer_token = req
         .headers()
         .get(AUTHORIZATION)
-        .and_then(|h| h.to_str().ok());
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .map(|s| s.to_string());
     // If the header is present, validate the token
-    if let Some(auth_header) = auth_header {
-        if let Some(token) = auth_header.strip_prefix("Bearer ") {
-            match validate_bearer_token(token, &config).await {
-                Ok(claims) => {
-                    debug!(
-                        issuer = %claims.iss,
-                        audience = ?claims.aud,
-                        subject = claims.sub.as_deref().unwrap_or("unknown"),
-                        expiration = ?claims.exp,
-                        issued_at = ?claims.iat,
-                        "Bearer token validated successfully"
-                    );
-                    return Ok(next.run(req).await);
-                }
-                Err(e) => {
-                    warn!("Bearer token validation failed: {e}");
-                    // Continue to return 401
-                }
+    if let Some(token) = bearer_token {
+        match validate_bearer_token(&token, &config).await {
+            Ok(claims) => {
+                debug!(
+                    issuer = %claims.iss,
+                    audience = ?claims.aud,
+                    subject = claims.sub.as_deref().unwrap_or("unknown"),
+                    expiration = ?claims.exp,
+                    issued_at = ?claims.iat,
+                    "Bearer token validated successfully"
+                );
+                // Store the token on the request context
+                req.extensions_mut().insert(token);
+                // Continue to the next middleware
+                return Ok(next.run(req).await);
+            }
+            Err(e) => {
+                warn!("Bearer token validation failed: {e}");
+                // Continue to return 401
             }
         }
     }

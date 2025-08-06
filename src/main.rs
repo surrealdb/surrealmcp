@@ -3,6 +3,7 @@ use anyhow::Result;
 use clap::Parser;
 
 mod cli;
+mod cloud;
 mod db;
 mod engine;
 mod logs;

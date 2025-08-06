@@ -374,11 +374,13 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
         .layer(rate_limit_layer);
     // Add bearer authentication middleware if specified
     if !auth_disabled {
+        // Set the token validation config
         let token_config = TokenValidationConfig {
             expected_audience: auth_audience.clone(),
             jwe_decryption_key: jwe_decryption_key.clone(),
             ..Default::default()
         };
+        // Add bearer authentication middleware
         router = router.layer(axum::middleware::from_fn(move |req, next| {
             let config = token_config.clone();
             require_bearer_auth(config, req, next)
