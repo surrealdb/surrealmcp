@@ -19,6 +19,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::db;
 use crate::engine;
+use crate::prompts;
 use crate::utils::{convert_json_to_surreal, parse_target, parse_targets};
 
 // Global metrics
@@ -1541,6 +1542,7 @@ This is useful when you want to:
 
 #[tool_handler]
 impl ServerHandler for SurrealService {
+    /// Get the MCP server info
     fn get_info(&self) -> ServerInfo {
         debug!("Getting server info");
         ServerInfo {
@@ -1554,6 +1556,7 @@ impl ServerHandler for SurrealService {
         }
     }
 
+    /// Initialize the MCP server
     async fn initialize(
         &self,
         _req: rmcp::model::InitializeRequestParam,
@@ -1569,5 +1572,43 @@ impl ServerHandler for SurrealService {
             );
         }
         Ok(self.get_info())
+    }
+
+    /// List the MCP server prompts
+    async fn list_prompts(
+        &self,
+        _req: Option<rmcp::model::PaginatedRequestParam>,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListPromptsResult, McpError> {
+        // Output debugging information
+        debug!("Listing available prompts");
+        // Get prompts from the prompts module
+        let prompts = prompts::get_available_prompts();
+        // Return the prompts
+        Ok(rmcp::model::ListPromptsResult {
+            prompts,
+            next_cursor: None,
+        })
+    }
+
+    /// Get an MCP server prompt
+    async fn get_prompt(
+        &self,
+        req: rmcp::model::GetPromptRequestParam,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::GetPromptResult, McpError> {
+        // Output debugging information
+        debug!(prompt_name = %req.name, "Getting prompt");
+        // Get prompt from the prompts module
+        match prompts::get_prompt_with_arguments(&req.name, req.arguments) {
+            Some((description, messages)) => Ok(rmcp::model::GetPromptResult {
+                description: Some(description),
+                messages,
+            }),
+            None => Err(McpError::internal_error(
+                format!("Unknown prompt: {}", req.name),
+                None,
+            )),
+        }
     }
 }

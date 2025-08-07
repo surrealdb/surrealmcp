@@ -6,6 +6,7 @@ mod cli;
 mod db;
 mod engine;
 mod logs;
+mod prompts;
 mod server;
 mod tools;
 mod utils;
