@@ -40,13 +40,13 @@ pub struct SelectParams {
     pub where_clause: Option<String>,
     #[schemars(description = "Optional SPLIT ON clause to split records on specific fields.")]
     pub split_clause: Option<String>,
-    #[schemars(description = "Optional GROUP BY clause to group records.")]
+    #[schemars(description = "Optional GROUP BY clause to group records by specific fields.")]
     pub group_clause: Option<String>,
-    #[schemars(description = "Optional ORDER BY clause to sort records.")]
+    #[schemars(description = "Optional ORDER BY clause to sort records by specific fields.")]
     pub order_clause: Option<String>,
     #[schemars(description = "Optional LIMIT clause to limit the number of results.")]
     pub limit_clause: Option<String>,
-    #[schemars(description = "Optional START clause to specify the pagination position.")]
+    #[schemars(description = "Optional START clause to specify the pagination start position.")]
     pub start_clause: Option<String>,
     #[schemars(description = "Optional parameters to bind to the query.")]
     pub parameters: Option<HashMap<String, serde_json::Value>>,
@@ -60,14 +60,14 @@ pub struct InsertParams {
     pub ignore: Option<bool>,
     #[schemars(description = "Whether this is a relation table insert (INSERT RELATION).")]
     pub relation: Option<bool>,
-    #[schemars(description = "Array of JSON objects to be inserted as record content.")]
+    #[schemars(description = "Array of JSON objects to be inserted as the record content.")]
     pub values: Vec<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct CreateParams {
-    #[schemars(description = "Array of table names or record IDs to create.")]
-    pub targets: Vec<String>,
+    #[schemars(description = "A table name or record ID to create.")]
+    pub target: String,
     #[schemars(description = "The JSON data to be inserted as the record content.")]
     pub data: serde_json::Map<String, serde_json::Value>,
 }
@@ -76,13 +76,13 @@ pub struct CreateParams {
 pub struct UpsertParams {
     #[schemars(description = "Array of table names or record IDs to upsert.")]
     pub targets: Vec<String>,
-    #[schemars(description = "The JSON data to apply to the record.")]
+    #[schemars(description = "The JSON patch operations to apply to the record or records.")]
     pub patch_data: Option<Vec<serde_json::Value>>,
-    #[schemars(description = "The JSON data to apply to the record.")]
+    #[schemars(description = "The JSON data to combine with the existing record or records.")]
     pub merge_data: Option<serde_json::Map<String, serde_json::Value>>,
-    #[schemars(description = "The JSON data to apply to the record.")]
+    #[schemars(description = "The JSON data to apply to the record or records.")]
     pub content_data: Option<serde_json::Map<String, serde_json::Value>>,
-    #[schemars(description = "The JSON data to apply to the record.")]
+    #[schemars(description = "The JSON data to apply to the record or records.")]
     pub replace_data: Option<serde_json::Map<String, serde_json::Value>>,
     #[schemars(description = "Optional WHERE clause to filter records before upserting.")]
     pub where_clause: Option<String>,
@@ -94,15 +94,15 @@ pub struct UpsertParams {
 pub struct UpdateParams {
     #[schemars(description = "Array of table names or record IDs to update.")]
     pub targets: Vec<String>,
-    #[schemars(description = "The JSON data to apply to the record.")]
+    #[schemars(description = "The JSON patch operations to apply to the record or records.")]
     pub patch_data: Option<Vec<serde_json::Value>>,
-    #[schemars(description = "The JSON data to apply to the record.")]
+    #[schemars(description = "The JSON data to combine with the existing record or records.")]
     pub merge_data: Option<serde_json::Map<String, serde_json::Value>>,
-    #[schemars(description = "The JSON data to apply to the record.")]
+    #[schemars(description = "The JSON data to apply to the record or records.")]
     pub content_data: Option<serde_json::Map<String, serde_json::Value>>,
-    #[schemars(description = "The JSON data to apply to the record.")]
+    #[schemars(description = "The JSON data to apply to the record or records.")]
     pub replace_data: Option<serde_json::Map<String, serde_json::Value>>,
-    #[schemars(description = "Optional WHERE clause to filter records before updating.")]
+    #[schemars(description = "Optional WHERE clause to filter records before upserting.")]
     pub where_clause: Option<String>,
     #[schemars(description = "Optional parameters to bind to the query.")]
     pub parameters: Option<HashMap<String, serde_json::Value>>,
@@ -110,7 +110,7 @@ pub struct UpdateParams {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct DeleteParams {
-    #[schemars(description = "Array of table names or record IDs to delete from.")]
+    #[schemars(description = "Array of table names or record IDs to delete.")]
     pub targets: Vec<String>,
     #[schemars(description = "Optional WHERE clause to filter records before deletion.")]
     pub where_clause: Option<String>,
@@ -349,20 +349,6 @@ tables or record IDs. Each item in the what parameter is parsed to determine if 
 table name or a record ID. You can optionally add various clauses to filter, group, sort, 
 and paginate the results.
 
-Parameters:
-- from: Array of table names or record IDs to select from. Each item can be either:
-  - A table name (e.g. "person", "article") - selects all records from that table
-  - A record ID (e.g. "person:john", "article:123") - selects a specific record
-
-Optional clauses:
-- where_clause: Filter records (e.g. "age > 25 AND name CONTAINS 'John'")
-- split_clause: Split records on specific fields (e.g. "age, city")
-- group_clause: Group records by fields (e.g. "age, city")
-- order_clause: Sort records (e.g. "name ASC, age DESC")
-- limit_clause: Limit number of records (e.g. "10")
-- start_clause: Start from specific position for pagination (e.g. "20")
-- parameters: Optional parameters to bind to the query (e.g. { "min_age": 25, "name_filter": "John" })
-
 Examples:
 - select(["person"])  # All records from person table
 - select(["person:john"])  # Specific record
@@ -448,12 +434,6 @@ This function executes a SurrealDB INSERT statement to insert new records into t
 specified table or with specific record ID. The data is provided as an array of JSON objects 
 and will be used as the content for the new records.
 
-Parameters:
-- target: A single table name to insert into (e.g. "person")
-- values: Array of JSON objects to insert (e.g. [{"name": "Tobie", "age": 38}, {"name": "Jaime", "age": 40}])
-- ignore: Optional boolean to ignore duplicate records (IGNORE keyword)
-- relation: Optional boolean to insert into a relation table (RELATION keyword)
-
 This is useful for batch inserting multiple records at once into a table.
 The INSERT statement uses the syntax: INSERT [ IGNORE | RELATION ] INTO table [obj1, obj2, ...]
 
@@ -513,31 +493,27 @@ Examples:
     /// used as the content for the new record. The table parameter can be either
     /// a table name or a specific record ID in the format "table:id".
     #[tool(description = r#"
-Create new records in the specified tables or with specific record IDs.
+Create a new record in the specified tables or with specific record IDs.
 
-This function executes a SurrealDB CREATE statement to insert new records into the 
-specified tables or with specific record IDs. The data is provided as a JSON value 
-and will be used as the content for the new records.
+This function executes a SurrealDB CREATE statement to insert a new record into the 
+specified table or with specific record ID. The data is provided as a JSON value 
+and will be used as the content for the new record.
 
-The what parameter accepts an array where each item can be either:
-- A table name (SurrealDB will generate unique IDs)
-- A specific record ID in the format 'table:id'
-
-This is useful for creating users, articles, products, or any other entities in your database.
+This is useful for creating users, articles, products, or any other entity in your database.
 "#)]
     pub async fn create(
         &self,
         params: Parameters<CreateParams>,
     ) -> Result<CallToolResult, McpError> {
-        let CreateParams { targets, data } = params.0;
+        let CreateParams { target, data } = params.0;
         // Increment tool usage counter
         counter!("surrealmcp.tools.create").increment(1);
         // Output debugging information
-        debug!(targets = ?targets, "Creating records");
+        debug!(target = ?target, "Creating record");
         // Build the initial query string
         let mut query = "CREATE ".to_string();
         // Process the tables and Record IDs
-        query.push_str(&parse_targets(targets).map_err(|e| McpError::internal_error(e, None))?);
+        query.push_str(&parse_target(target).map_err(|e| McpError::internal_error(e, None))?);
         // Add the data content clause
         query.push_str(" CONTENT $data");
         // Create parameters with native SurrealDB types
@@ -564,16 +540,6 @@ Execute a SurrealDB UPSERT statement to create or update records in the database
 This function executes a SurrealDB UPSERT statement to create new records or update 
 existing ones. The UPSERT statement combines the functionality of CREATE and UPDATE, 
 inserting a new record if it doesn't exist, or updating an existing record if it does.
-
-The what parameter accepts an array where each item can be either:
-- A table name (SurrealDB will generate unique IDs)
-- A specific record ID in the format 'table:id'
-
-You can specify how to apply the data using different modes:
-- content_data: Sets the complete record content (like CREATE CONTENT)
-- replace_data: Completely replaces the record content (like UPDATE CONTENT)
-- merge_data: Combines new data with existing data (like UPDATE MERGE)
-- patch_data: Applies JSON patch operations (like UPDATE PATCH)
 
 Examples:
 - upsert(["person:john"], {"name": "John", "age": 30})  # Creates or updates specific record
@@ -676,18 +642,6 @@ Execute a SurrealDB UPDATE statement to modify records in the database.
 This function executes a SurrealDB UPDATE statement to modify the content of records 
 in the database. The what parameter accepts an array where each item can be either a 
 table name or a specific record ID, similar to the select function.
-
-Parameters:
-- what: Array of table names or record IDs to update (e.g. ["person"], ["person:john"], ["person", "article"])
-- data: The JSON data to apply to the records
-- where_clause: Optional WHERE clause to filter records before updating
-- update_mode: Optional update mode for applying data to existing records
-- parameters: Optional parameters to bind to the query (e.g. { "min_age": 25, "name_filter": "John" })
-
-Update modes:
-- 'replace' (default): Completely replaces the record content
-- 'merge': Combines new data with existing data
-- 'patch': Applies JSON patch operations
 
 Examples:
 - update(["person"], {"age": 31})  # Updates all records in person table
@@ -794,11 +748,6 @@ Execute a SurrealDB DELETE statement to remove records from the database.
 This function executes a SurrealDB DELETE statement to remove records from the 
 specified tables or specific record IDs. The what parameter accepts an array where 
 each item can be either a table name or a specific record ID, similar to the select function.
-
-Parameters:
-- what: Array of table names or record IDs to delete from (e.g. ["person"], ["person:john"], ["person", "article"])
-- where_clause: Optional WHERE clause to filter records before deletion
-- parameters: Optional parameters to bind to the query (e.g. { "min_age": 25, "name_filter": "John" })
 
 Examples:
 - delete(["person"])  # Deletes all records from person table
