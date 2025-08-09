@@ -33,12 +33,6 @@ pub struct CloudInstance {
     pub updated_at: String,
 }
 
-/// A request to sign in to SurrealDB Cloud
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CloudSignInRequest {
-    pub token: String,
-}
-
 /// A response from signing in to SurrealDB Cloud
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CloudSignInResponse {

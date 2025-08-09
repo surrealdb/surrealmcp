@@ -874,7 +874,7 @@ Examples:
             .cloud_client
             .list_organizations()
             .await
-            .or_else(|e| Err(McpError::internal_error(e.to_string(), None)))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         // Convert result to JSON
         let organisations: Vec<serde_json::Value> = organisations
             .into_iter()
@@ -917,7 +917,7 @@ Examples:
             .cloud_client
             .list_instances(&organization_id)
             .await
-            .or_else(|e| Err(McpError::internal_error(e.to_string(), None)))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         // Convert result to JSON
         let instances: Vec<serde_json::Value> = instances
             .into_iter()
@@ -953,11 +953,10 @@ Examples:
         // Output debugging information
         debug!(instance_id = instance_id, "Pausing cloud instance");
         // Pause the cloud instance
-        let _ = self
-            .cloud_client
+        self.cloud_client
             .pause_instance(&instance_id)
             .await
-            .or_else(|e| Err(McpError::internal_error(e.to_string(), None)))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         // Create the result JSON
         let result = serde_json::json!({
             "message": "Successfully paused cloud instance",
@@ -979,12 +978,11 @@ Examples:
         counter!("surrealmcp.tools.resume_cloud_instance").increment(1);
         // Output debugging information
         debug!(instance_id = instance_id, "Resuming cloud instance");
-        // Pause the cloud instance
-        let _ = self
-            .cloud_client
+        // Resume the cloud instance
+        self.cloud_client
             .resume_instance(&instance_id)
             .await
-            .or_else(|e| Err(McpError::internal_error(e.to_string(), None)))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         // Create the result JSON
         let result = serde_json::json!({
             "message": "Successfully resumed cloud instance",
@@ -1007,11 +1005,10 @@ Examples:
         // Output debugging information
         debug!("Getting status for cloud instance: {instance_id}");
         // Fetch the cloud instance status
-        let _ = self
-            .cloud_client
+        self.cloud_client
             .get_instance_status(&instance_id)
             .await
-            .or_else(|e| Err(McpError::internal_error(e.to_string(), None)))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         // Create the result JSON
         let result = serde_json::json!({
             "message": "Successfully fetched status for cloud instance",
@@ -1055,7 +1052,7 @@ Examples:
             .cloud_client
             .create_instance(&organization_id, &name)
             .await
-            .or_else(|e| Err(McpError::internal_error(e.to_string(), None)))?;
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         // Create the result JSON
         let result = serde_json::json!({
             "message": "Successfully created cloud instance",

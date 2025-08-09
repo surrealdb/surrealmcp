@@ -645,8 +645,7 @@ mod tests {
         let result = validate_jwe_token(token, &TokenValidationConfig::default()).await;
         assert!(
             result.is_ok(),
-            "Token validation should succeed: {:?}",
-            result
+            "Token validation should succeed: {result:?}"
         );
 
         let claims = result.unwrap();
@@ -761,7 +760,7 @@ mod tests {
 
         let request = Request::builder()
             .uri("/test")
-            .header("Authorization", format!("Bearer {}", token))
+            .header("Authorization", format!("Bearer {token}"))
             .body(Body::empty())
             .unwrap();
 
