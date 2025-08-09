@@ -22,6 +22,7 @@ use crate::cloud::Client;
 use crate::db;
 use crate::engine;
 use crate::prompts;
+use crate::resources;
 use crate::utils::{convert_json_to_surreal, parse_target, parse_targets};
 
 // Global metrics
@@ -1855,14 +1856,16 @@ This is useful when you want to:
 impl ServerHandler for SurrealService {
     /// Get the MCP server info
     fn get_info(&self) -> ServerInfo {
+        // Output debugging information
         debug!("Getting server info");
+        // Get the server info
         ServerInfo {
             capabilities: ServerCapabilities::builder()
-                .enable_tools()
                 .enable_resources()
                 .enable_prompts()
+                .enable_tools()
                 .build(),
-            instructions: Some(include_str!("../../instructions.md").to_string()),
+            instructions: Some(include_str!("../../server.md").to_string()),
             ..Default::default()
         }
     }
@@ -1873,6 +1876,7 @@ impl ServerHandler for SurrealService {
         _req: rmcp::model::InitializeRequestParam,
         ctx: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::InitializeResult, McpError> {
+        // Output debugging information
         debug!("Initializing MCP server");
         // Get the bearer token from the extensions
         if let Some(parts) = ctx.extensions.get::<Parts>() {
@@ -1904,7 +1908,7 @@ impl ServerHandler for SurrealService {
         // Output debugging information
         debug!("Listing available prompts");
         // Get prompts from the prompts module
-        let prompts = prompts::get_available_prompts();
+        let prompts = prompts::list_prompts();
         // Return the prompts
         Ok(rmcp::model::ListPromptsResult {
             prompts,
@@ -1928,6 +1932,41 @@ impl ServerHandler for SurrealService {
             }),
             None => Err(McpError::internal_error(
                 format!("Unknown prompt: {}", req.name),
+                None,
+            )),
+        }
+    }
+
+    /// List the MCP server resources
+    async fn list_resources(
+        &self,
+        _req: Option<rmcp::model::PaginatedRequestParam>,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListResourcesResult, McpError> {
+        // Output debugging information
+        debug!("Listing available prompts");
+        // Get resources from the resources module
+        let resources = resources::list_resources();
+        // Return the resources
+        Ok(rmcp::model::ListResourcesResult {
+            resources,
+            next_cursor: None,
+        })
+    }
+
+    /// Get an MCP server resource
+    async fn read_resource(
+        &self,
+        req: rmcp::model::ReadResourceRequestParam,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ReadResourceResult, McpError> {
+        // Output debugging information
+        debug!(resource_uri = %req.uri, "Reading resource");
+        // Get resource from the resources module
+        match resources::read_resource(&req.uri) {
+            Some(resource) => Ok(resource),
+            None => Err(McpError::internal_error(
+                format!("Unknown resource: {}", req.uri),
                 None,
             )),
         }

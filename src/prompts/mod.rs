@@ -165,6 +165,96 @@ impl PromptGenerator for DataModelingExpert {
     }
 }
 
+/// SurrealQL Guide prompt (best-practice system + examples)
+pub struct SurrealQlGuide;
+
+impl PromptGenerator for SurrealQlGuide {
+    fn name(&self) -> &'static str {
+        "surrealql_guide"
+    }
+
+    fn summary(&self) -> &'static str {
+        "Comprehensive SurrealQL writing guide"
+    }
+
+    fn description(&self) -> &'static str {
+        "A prompt that provides best practices and examples for writing correct and efficient SurrealQL"
+    }
+
+    fn arguments(&self) -> Vec<PromptArgument> {
+        vec![
+            PromptArgument {
+                name: "task".to_string(),
+                description: Some(
+                    "Brief description of what you need to do in SurrealQL".to_string(),
+                ),
+                required: Some(false),
+            },
+            PromptArgument {
+                name: "schema".to_string(),
+                description: Some(
+                    "Optional schema or table context relevant to the task".to_string(),
+                ),
+                required: Some(false),
+            },
+        ]
+    }
+
+    fn generate(&self, arguments: Option<Map<String, Value>>) -> Vec<PromptMessage> {
+        let task = arguments
+            .as_ref()
+            .and_then(|args| args.get("task"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("Write SurrealQL for my task");
+        let schema = arguments
+            .as_ref()
+            .and_then(|args| args.get("schema"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        let user_text = if schema.is_empty() {
+            task.to_string()
+        } else {
+            format!("{task}\n\nSchema/context:\n{schema}")
+        };
+
+        let system_guide = r#"You are a SurrealDB expert. Produce correct, safe, and efficient SurrealQL.
+
+Best practices:
+- Prefer parameterized queries with $name variables; avoid string concatenation.
+- Use explicit WHERE filters; never update/delete entire tables unless user explicitly asks.
+- For CREATE/UPSERT/UPDATE use CONTENT/MERGE/REPLACE appropriately.
+- Use SPLIT ON for arrays, GROUP BY for aggregations, and ORDER BY with explicit direction.
+- For relations, use RELATE a->edge->b, and optionally CONTENT for edge properties.
+- Keep queries idempotent when possible; explain assumptions.
+- Return only necessary fields using SELECT field projection when asked to optimize.
+
+Examples:
+-- Parameterized select
+SELECT id, name FROM user WHERE age > $min_age AND name CONTAINS $name ORDER BY age DESC LIMIT 10;
+
+-- Create with content
+CREATE user CONTENT { id: user:alice, name: $name, age: $age };
+
+-- Update merge vs replace
+UPDATE user:alice MERGE { preferences: { theme: "dark" } };
+UPDATE user:alice REPLACE { name: "Alice", age: 30 };
+
+-- Relate with properties
+RELATE user:alice->follows->user:bob CONTENT { since: time::now() };
+
+-- Upsert pattern
+UPSERT user:alice CONTENT { name: $name, age: $age };
+
+If details are missing, ask concise clarifying questions before executing risky operations. Provide the final SurrealQL first, then a brief explanation."#;
+
+        vec![
+            PromptMessage::new_text(PromptMessageRole::Assistant, system_guide.to_string()),
+            PromptMessage::new_text(PromptMessageRole::User, user_text),
+        ]
+    }
+}
+
 /// Registry of all available prompts
 pub struct PromptRegistry;
 
@@ -174,19 +264,20 @@ impl PromptRegistry {
         vec![
             Box::new(DatabaseQueryAssistant),
             Box::new(DataModelingExpert),
+            Box::new(SurrealQlGuide),
         ]
     }
 
     /// Find a prompt generator by name
-    pub fn find_generator(name: &str) -> Option<Box<dyn PromptGenerator>> {
+    pub fn find_by_name(name: &str) -> Option<Box<dyn PromptGenerator>> {
         Self::get_generators()
             .into_iter()
             .find(|generator| generator.name() == name)
     }
 }
 
-/// Get all available prompts
-pub fn get_available_prompts() -> Vec<Prompt> {
+/// List all available prompts
+pub fn list_prompts() -> Vec<Prompt> {
     PromptRegistry::get_generators()
         .into_iter()
         .map(|generator| Prompt {
@@ -202,7 +293,7 @@ pub fn get_prompt_with_arguments(
     name: &str,
     arguments: Option<Map<String, Value>>,
 ) -> Option<(String, Vec<PromptMessage>)> {
-    PromptRegistry::find_generator(name).map(|generator| {
+    PromptRegistry::find_by_name(name).map(|generator| {
         (
             generator.summary().to_string(),
             generator.generate(arguments),
@@ -236,16 +327,16 @@ mod tests {
         let generators = PromptRegistry::get_generators();
         assert_eq!(generators.len(), 2);
 
-        let db_generator = PromptRegistry::find_generator("database_query_assistant");
+        let db_generator = PromptRegistry::find_by_name("database_query_assistant");
         assert!(db_generator.is_some());
 
-        let unknown_generator = PromptRegistry::find_generator("unknown_prompt");
+        let unknown_generator = PromptRegistry::find_by_name("unknown_prompt");
         assert!(unknown_generator.is_none());
     }
 
     #[test]
     fn test_get_available_prompts() {
-        let prompts = get_available_prompts();
+        let prompts = list_prompts();
         assert_eq!(prompts.len(), 2);
 
         let prompt_names: Vec<&str> = prompts.iter().map(|p| p.name.as_str()).collect();

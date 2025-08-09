@@ -8,6 +8,7 @@ mod db;
 mod engine;
 mod logs;
 mod prompts;
+mod resources;
 mod server;
 mod tools;
 mod utils;
