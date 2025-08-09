@@ -50,6 +50,8 @@ pub fn init_logging_and_metrics(stdio: bool) {
     counter!("surrealmcp.errors.use_namespace").absolute(0);
     counter!("surrealmcp.errors.use_database").absolute(0);
     counter!("surrealmcp.errors.no_connection").absolute(0);
+    counter!("surrealmcp.errors.list_namespaces").absolute(0);
+    counter!("surrealmcp.errors.list_databases").absolute(0);
     // Tool method call counters
     counter!("surrealmcp.tools.query").absolute(0);
     counter!("surrealmcp.tools.select").absolute(0);
@@ -60,6 +62,8 @@ pub fn init_logging_and_metrics(stdio: bool) {
     counter!("surrealmcp.tools.delete").absolute(0);
     counter!("surrealmcp.tools.relate").absolute(0);
     counter!("surrealmcp.tools.connect_endpoint").absolute(0);
+    counter!("surrealmcp.tools.list_namespaces").absolute(0);
+    counter!("surrealmcp.tools.list_databases").absolute(0);
     counter!("surrealmcp.tools.use_namespace").absolute(0);
     counter!("surrealmcp.tools.use_database").absolute(0);
     counter!("surrealmcp.tools.disconnect_endpoint").absolute(0);

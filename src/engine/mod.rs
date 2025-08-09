@@ -60,7 +60,7 @@ pub async fn execute_query(
     query_string: String,
     parameters: Option<HashMap<String, Value>>,
     connection_id: &str,
-) -> Result<Response, anyhow::Error> {
+) -> Response {
     // Start the measurement timer
     let start_time = Instant::now();
     // Output debugging information
@@ -95,13 +95,13 @@ pub async fn execute_query(
             counter!("surrealmcp.total_queries").increment(1);
             histogram!("surrealmcp.query_duration_ms").record(duration.as_millis() as f64);
             // Return the response
-            Ok(Response {
+            Response {
                 query: query_string,
                 result: Some(res),
                 error: None,
                 duration,
                 query_id,
-            })
+            }
         }
         Err(e) => {
             // Get the duration of the query
@@ -119,13 +119,13 @@ pub async fn execute_query(
             counter!("surrealmcp.total_query_errors").increment(1);
             histogram!("surrealmcp.query_duration_ms").record(duration.as_millis() as f64);
             // Return the response
-            Ok(Response {
+            Response {
                 query: query_string,
                 result: None,
                 error: Some(e.to_string()),
                 duration,
                 query_id,
-            })
+            }
         }
     }
 }

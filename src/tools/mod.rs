@@ -27,6 +27,26 @@ use crate::utils::{convert_json_to_surreal, parse_target, parse_targets};
 // Global metrics
 static QUERY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+#[derive(Deserialize)]
+struct ListNamespaces {
+    namespaces: Vec<Namespace>,
+}
+
+#[derive(Deserialize)]
+struct Namespace {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct ListDatabases {
+    databases: Vec<Database>,
+}
+
+#[derive(Deserialize)]
+struct Database {
+    name: String,
+}
+
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct QueryParams {
     #[schemars(description = "The SurrealQL query string")]
@@ -341,7 +361,9 @@ Parameterized query examples:
             None
         };
         // Use the internal query function
-        self.query_internal(query_string, parameters).await
+        self.query_internal(query_string, parameters)
+            .await?
+            .to_mcp_result()
     }
 
     /// Execute a SurrealDB SELECT statement to retrieve records from the database.
@@ -429,7 +451,9 @@ Examples:
         // Output debugging information
         trace!("Selecting records with query: {query}");
         // Execute the final query
-        self.query_internal(query, Some(params)).await
+        self.query_internal(query, Some(params))
+            .await?
+            .to_mcp_result()
     }
 
     /// Insert new records into the specified tables or with specific record IDs.
@@ -494,7 +518,9 @@ Examples:
         // Output debugging information
         trace!("Inserting records with query: {query}");
         // Execute the final query
-        self.query_internal(query, Some(params)).await
+        self.query_internal(query, Some(params))
+            .await?
+            .to_mcp_result()
     }
 
     /// Create a new record in the specified table with the provided data.
@@ -536,7 +562,9 @@ This is useful for creating users, articles, products, or any other entity in yo
         // Output debugging information
         trace!("Creating records with query: {query}");
         // Execute the final query
-        self.query_internal(query, Some(params)).await
+        self.query_internal(query, Some(params))
+            .await?
+            .to_mcp_result()
     }
 
     /// Execute a SurrealDB UPSERT statement to create or update records in the database.
@@ -637,7 +665,9 @@ Examples:
         // Output debugging information
         trace!("Upserting records with query: {query}");
         // Execute the final query
-        self.query_internal(query, Some(params)).await
+        self.query_internal(query, Some(params))
+            .await?
+            .to_mcp_result()
     }
 
     /// Execute a SurrealDB UPDATE statement to modify records in the database.
@@ -742,7 +772,9 @@ Examples:
         // Output debugging information
         trace!("Updating records with query: {query}");
         // Execute the final query
-        self.query_internal(query, Some(params)).await
+        self.query_internal(query, Some(params))
+            .await?
+            .to_mcp_result()
     }
 
     /// Execute a SurrealDB DELETE statement to remove records from the database.
@@ -803,7 +835,9 @@ Examples:
         // Output debugging information
         trace!("Deleting records with query: {query}");
         // Execute the final query
-        self.query_internal(query, Some(params)).await
+        self.query_internal(query, Some(params))
+            .await?
+            .to_mcp_result()
     }
 
     /// Create a relationship between two records in the database.
@@ -1251,6 +1285,169 @@ Examples:
         }
     }
 
+    /// List available namespaces on the connected endpoint.
+    ///
+    /// This function lists all namespaces available on the currently connected SurrealDB endpoint.
+    /// It returns a list of namespaces with their names.
+    ///
+    /// # Arguments
+    /// * `None` - No parameters are required for this tool
+    #[tool(description = r#"
+List available namespaces on the connected endpoint.
+
+This function lists all namespaces available on the currently connected SurrealDB endpoint.
+It returns a list of namespaces with their names."#)]
+    pub async fn list_namespaces(&self) -> Result<CallToolResult, McpError> {
+        // Start the measurement timer
+        let start_time = Instant::now();
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.list_namespaces").increment(1);
+        // Output debugging information
+        debug!("Listing available namespaces");
+        // Build the initial query string
+        let query = "INFO FOR ROOT STRUCTURE ".to_string();
+        // Execute INFO FOR ROOT STRUCTURE
+        let mut exec_res = self.query_internal(query, None).await?;
+        // Match the result of the query
+        match exec_res.result.as_mut() {
+            Some(response) => {
+                // Calculate the elapsed time
+                let duration = start_time.elapsed();
+                // Take the first element of the response
+                let info_opt: Option<ListNamespaces> =
+                    response
+                        .take::<Option<ListNamespaces>>(0)
+                        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                let info = info_opt.ok_or_else(|| {
+                    McpError::internal_error(
+                        "No namespaces returned when running INFO FOR ROOT".to_string(),
+                        None,
+                    )
+                })?;
+                // Convert the namespaces to a JSON object
+                let namespaces: Vec<serde_json::Value> = info
+                    .namespaces
+                    .into_iter()
+                    .map(|ns| serde_json::json!({ "name": ns.name }))
+                    .collect();
+                // Convert the namespaces to a JSON object
+                let result = serde_json::json!({
+                    "namespaces": namespaces,
+                    "count": namespaces.len()
+                });
+                // Output debugging information
+                info!(
+                    connection_id = %self.connection_id,
+                    duration_ms = duration.as_millis(),
+                    "Successfully listed available namespaces"
+                );
+                // Return the result
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            None => {
+                // Calculate the elapsed time
+                let duration = start_time.elapsed();
+                // Output debugging information
+                warn!(
+                    connection_id = %self.connection_id,
+                    duration_ms = duration.as_millis(),
+                    "Unable to list available namespaces"
+                );
+                // Increment error metrics
+                counter!("surrealmcp.total_errors").increment(1);
+                counter!("surrealmcp.errors.list_namespaces").increment(1);
+                // Return error message
+                let err = exec_res
+                    .error
+                    .unwrap_or_else(|| "Unknown error".to_string());
+                Err(McpError::internal_error(err, None))
+            }
+        }
+    }
+
+    /// List available databases on the connected endpoint.
+    ///
+    /// This function lists all databases available on the currently connected SurrealDB endpoint.
+    /// It returns a list of databases with their names.
+    ///
+    /// # Arguments
+    /// * `None` - No parameters are required for this tool
+    #[tool(description = r#"
+List available databases on the connected endpoint.
+
+This function lists all databases available on the currently connected SurrealDB endpoint.
+It returns a list of databases with their names."#)]
+    pub async fn list_databases(&self) -> Result<CallToolResult, McpError> {
+        // Start the measurement timer
+        let start_time = Instant::now();
+        // Increment tool usage counter
+        counter!("surrealmcp.tools.list_databases").increment(1);
+        // Output debugging information
+        debug!("Listing available databases");
+        // Build the initial query string
+        let query = "INFO FOR NAMESPACE STRUCTURE ".to_string();
+        // Execute INFO FOR ROOT STRUCTURE
+        let mut exec_res = self.query_internal(query, None).await?;
+        // Match the result of the query
+        match exec_res.result.as_mut() {
+            Some(response) => {
+                // Calculate the elapsed time
+                let duration = start_time.elapsed();
+                // Take the first element of the response
+                let info_opt: Option<ListDatabases> = response
+                    .take::<Option<ListDatabases>>(0)
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                let info = info_opt.ok_or_else(|| {
+                    McpError::internal_error(
+                        "No databases returned when running INFO FOR NAMESPACE".to_string(),
+                        None,
+                    )
+                })?;
+                // Convert the databases to a JSON object
+                let databases: Vec<serde_json::Value> = info
+                    .databases
+                    .into_iter()
+                    .map(|db| serde_json::json!({ "name": db.name }))
+                    .collect();
+                // Convert the databases to a JSON object
+                let result = serde_json::json!({
+                    "databases": databases,
+                    "count": databases.len()
+                });
+                // Output debugging information
+                info!(
+                    connection_id = %self.connection_id,
+                    duration_ms = duration.as_millis(),
+                    "Successfully listed available databases"
+                );
+                // Return the result
+                Ok(CallToolResult::success(vec![Content::text(
+                    result.to_string(),
+                )]))
+            }
+            None => {
+                // Calculate the elapsed time
+                let duration = start_time.elapsed();
+                // Output debugging information
+                warn!(
+                    connection_id = %self.connection_id,
+                    duration_ms = duration.as_millis(),
+                    "Unable to list available databases"
+                );
+                // Increment error metrics
+                counter!("surrealmcp.total_errors").increment(1);
+                counter!("surrealmcp.errors.list_databases").increment(1);
+                // Return error message
+                let err = exec_res
+                    .error
+                    .unwrap_or_else(|| "Unknown error".to_string());
+                Err(McpError::internal_error(err, None))
+            }
+        }
+    }
+
     /// Change the namespace on the currently connected endpoint.
     ///
     /// This function allows you to switch to a different namespace on the currently
@@ -1552,7 +1749,7 @@ This is useful when you want to:
         &self,
         query_string: String,
         parameters: Option<HashMap<String, Value>>,
-    ) -> Result<CallToolResult, McpError> {
+    ) -> Result<engine::Response, McpError> {
         // Increment the query counter
         let query_id = QUERY_COUNTER.fetch_add(1, Ordering::SeqCst);
         // Lock the database connection
@@ -1569,17 +1766,8 @@ This is useful when you want to:
                     &self.connection_id,
                 )
                 .await;
-                // Check the result of the query
-                match res {
-                    Ok(response) => {
-                        // Convert response to MCP result
-                        response.to_mcp_result()
-                    }
-                    Err(e) => {
-                        // Return the received error message
-                        Err(McpError::internal_error(e.to_string(), None))
-                    }
-                }
+                // Return the response
+                Ok(res)
             }
             None => {
                 // Output debugging information
@@ -1683,11 +1871,11 @@ impl ServerHandler for SurrealService {
     async fn initialize(
         &self,
         _req: rmcp::model::InitializeRequestParam,
-        _ctx: RequestContext<RoleServer>,
+        ctx: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::InitializeResult, McpError> {
         debug!("Initializing MCP server");
         // Get the bearer token from the extensions
-        if let Some(parts) = _ctx.extensions.get::<Parts>() {
+        if let Some(parts) = ctx.extensions.get::<Parts>() {
             if let Some(token) = parts.extensions.get::<String>() {
                 self.cloud_client
                     .client_token
