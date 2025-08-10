@@ -34,6 +34,8 @@ async fn main() -> Result<()> {
             auth_server,
             auth_audience,
             jwe_decryption_key,
+            cloud_access_token,
+            cloud_refresh_token,
         } => {
             // Create the server config
             let config = ServerConfig {
@@ -51,6 +53,8 @@ async fn main() -> Result<()> {
                 auth_server,
                 auth_audience,
                 jwe_decryption_key,
+                cloud_access_token,
+                cloud_refresh_token,
             };
             server::start_server(config).await
         }

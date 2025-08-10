@@ -67,5 +67,11 @@ pub enum Commands {
         /// Base64-encoded key for JWE decryption
         #[arg(long, env = "SURREAL_MCP_JWE_DECRYPTION_KEY")]
         jwe_decryption_key: Option<String>,
+        /// SurrealDB Cloud access token (used instead of fetching tokens)
+        #[arg(long, env = "SURREAL_MCP_CLOUD_ACCESS_TOKEN")]
+        cloud_access_token: Option<String>,
+        /// SurrealDB Cloud refresh token (used instead of fetching tokens)
+        #[arg(long, env = "SURREAL_MCP_CLOUD_REFRESH_TOKEN")]
+        cloud_refresh_token: Option<String>,
     },
 }

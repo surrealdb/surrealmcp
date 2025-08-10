@@ -39,6 +39,8 @@ pub struct ServerConfig {
     pub auth_server: String,
     pub auth_audience: String,
     pub jwe_decryption_key: Option<String>,
+    pub cloud_access_token: Option<String>,
+    pub cloud_refresh_token: Option<String>,
 }
 
 // Global metrics
@@ -86,6 +88,8 @@ async fn start_stdio_server(config: ServerConfig) -> Result<()> {
         db,
         user,
         pass,
+        cloud_access_token,
+        cloud_refresh_token,
         ..
     } = config;
     // Initialize structured logging and metrics
@@ -95,7 +99,16 @@ async fn start_stdio_server(config: ServerConfig) -> Result<()> {
     // Generate a connection ID for this connection
     let connection_id = generate_connection_id();
     // Create a new SurrealDB service instance
-    let service = SurrealService::with_config(connection_id.clone(), endpoint, ns, db, user, pass);
+    let service = SurrealService::with_config(
+        connection_id.clone(),
+        endpoint,
+        ns,
+        db,
+        user,
+        pass,
+        cloud_access_token,
+        cloud_refresh_token,
+    );
     // Initialize the connection using startup configuration
     if let Err(e) = service.initialize_connection().await {
         error!(
@@ -140,6 +153,8 @@ async fn start_unix_server(config: ServerConfig) -> Result<()> {
         user,
         pass,
         socket_path,
+        cloud_access_token,
+        cloud_refresh_token,
         ..
     } = config;
     // Get the specified socket path
@@ -193,6 +208,8 @@ async fn start_unix_server(config: ServerConfig) -> Result<()> {
         let database = db.clone();
         let user = user.clone();
         let pass = pass.clone();
+        let cloud_access_token = cloud_access_token.clone();
+        let cloud_refresh_token = cloud_refresh_token.clone();
         // Spawn a new async task to handle this client connection
         tokio::spawn(async move {
             let _span =
@@ -207,6 +224,8 @@ async fn start_unix_server(config: ServerConfig) -> Result<()> {
                 database,
                 user,
                 pass,
+                cloud_access_token,
+                cloud_refresh_token,
             );
             // Initialize the connection using startup configuration only if endpoint is specified
             if let Err(e) = service.initialize_connection().await {
@@ -269,6 +288,8 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
         auth_server,
         auth_audience,
         jwe_decryption_key,
+        cloud_access_token,
+        cloud_refresh_token,
         ..
     } = config;
     // Get the specified bind address
@@ -320,6 +341,8 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
                 db.clone(),
                 user.clone(),
                 pass.clone(),
+                cloud_access_token.clone(),
+                cloud_refresh_token.clone(),
             ))
         },
         session_manager,
@@ -427,6 +450,8 @@ mod tests {
             auth_server: "https://auth.surrealdb.com".to_string(),
             auth_audience: "https://custom.audience.com/".to_string(),
             jwe_decryption_key: None,
+            cloud_access_token: None,
+            cloud_refresh_token: None,
         };
 
         // Create a simple router to test the discovery endpoint

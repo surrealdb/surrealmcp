@@ -272,6 +272,7 @@ impl SurrealService {
     /// * `database` - The database to use (optional)
     /// * `user` - Username for authentication (optional)
     /// * `pass` - Password for authentication (optional)
+    #[allow(clippy::too_many_arguments)]
     pub fn with_config(
         connection_id: String,
         endpoint: Option<String>,
@@ -279,6 +280,8 @@ impl SurrealService {
         database: Option<String>,
         user: Option<String>,
         pass: Option<String>,
+        access_token: Option<String>,
+        refresh_token: Option<String>,
     ) -> Self {
         // Output debugging information
         info!(
@@ -289,6 +292,22 @@ impl SurrealService {
             has_bearer_token = false,
             "Creating new client session with config"
         );
+        // Create cloud client with tokens if provided
+        let cloud_client = if let (Some(access), Some(refresh)) = (access_token, refresh_token) {
+            // Output debugging information
+            info!(
+                access_token = %access,
+                refresh_token = %refresh,
+                "Creating new cloud client with tokens"
+            );
+            // Create cloud client with tokens
+            Arc::new(Client::with_tokens(access, refresh))
+        } else {
+            // Output debugging information
+            info!("Creating new cloud client without tokens");
+            // Create cloud client without tokens
+            Arc::new(Client::new())
+        };
         // Create a new service instance
         Self {
             db: Arc::new(Mutex::new(None)),
@@ -300,7 +319,7 @@ impl SurrealService {
             pass,
             connected_at: Instant::now(),
             tool_router: Self::tool_router(),
-            cloud_client: Arc::new(Client::new()),
+            cloud_client,
         }
     }
 

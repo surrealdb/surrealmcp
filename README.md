@@ -105,6 +105,8 @@ export SURREAL_MCP_RATE_LIMIT_RPS="100"
 export SURREAL_MCP_RATE_LIMIT_BURST="200"
 export SURREAL_MCP_AUTH_REQUIRED="false"
 export SURREAL_MCP_JWE_DECRYPTION_KEY="base64-encoded-32-byte-key"
+export SURREAL_MCP_CLOUD_ACCESS_TOKEN="your_access_token_here"
+export SURREAL_MCP_CLOUD_REFRESH_TOKEN="your_refresh_token_here"
 
 surrealmcp start
 ```
@@ -153,6 +155,30 @@ This is useful when:
 - Your application uses JWE tokens for enhanced security
 - You need to decrypt and validate the full token contents
 - You're working with encrypted tokens that require a specific decryption key
+
+### Pre-configured Cloud Authentication Tokens
+
+For SurrealDB Cloud operations, you can provide pre-configured access and refresh tokens instead of fetching them dynamically:
+
+```bash
+# Set pre-configured tokens
+surrealmcp start \
+  --access-token "your_access_token_here" \
+  --refresh-token "your_refresh_token_here"
+
+# Or via environment variables
+export SURREAL_MCP_CLOUD_ACCESS_TOKEN="your_access_token_here"
+export SURREAL_MCP_CLOUD_REFRESH_TOKEN="your_refresh_token_here"
+surrealmcp start
+```
+
+This is useful when:
+- You have existing tokens from a previous authentication flow
+- You want to avoid the token fetching process
+- You're running in environments where token fetching is not possible
+- You want to use long-lived tokens for automated operations
+
+**Note**: When both access and refresh tokens are provided, the server will use these tokens for all SurrealDB Cloud API operations instead of attempting to fetch new tokens.
 
 ### Client Integration
 

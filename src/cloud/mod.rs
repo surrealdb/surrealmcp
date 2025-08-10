@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 const CLOUD_API_BASE_URL: &str = "https://api.cloud.surrealdb.com/api/v1";
 
@@ -88,6 +88,16 @@ impl Client {
         }
     }
 
+    /// Create a new SurrealDB Cloud client with pre-configured tokens
+    pub fn with_tokens(access_token: String, refresh_token: String) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            client_token: RwLock::new(None),
+            auth_token: RwLock::new(Some(access_token)),
+            refresh_token: RwLock::new(Some(refresh_token)),
+        }
+    }
+
     /// Send a GET request to the given URL
     async fn get(&self, url: &str) -> Result<reqwest::Response> {
         // Ensure we are authenticated
@@ -100,13 +110,18 @@ impl Client {
         let auth_token = auth_token
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Not authenticated with SurrealDB Cloud"))?;
-        // Send the request
-        let response = self
+        // Create the request
+        let request = self
             .client
             .get(url)
-            .header("Authorization", format!("Bearer {auth_token}"))
-            .send()
-            .await?;
+            .header("Authorization", format!("Bearer {auth_token}"));
+        // Output debugging information
+        trace!(
+            request = ?request,
+            "Sending GET request to SurrealDB Cloud",
+        );
+        // Send the request
+        let response = request.send().await?;
         // Return the response
         Ok(response)
     }
@@ -126,14 +141,19 @@ impl Client {
         let auth_token = auth_token
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Not authenticated with SurrealDB Cloud"))?;
-        // Send the request
-        let response = self
+        // Create the request
+        let request = self
             .client
             .post(url)
             .header("Authorization", format!("Bearer {auth_token}"))
-            .json(body)
-            .send()
-            .await?;
+            .json(body);
+        // Output debugging information
+        trace!(
+            request = ?request,
+            "Sending POST request to SurrealDB Cloud",
+        );
+        // Send the request
+        let response = request.send().await?;
         // Return the response
         Ok(response)
     }
@@ -364,5 +384,37 @@ impl Client {
         );
         // Return nothing
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_client_new() {
+        let client = Client::new();
+
+        // Test that tokens are not set initially
+        let auth_token = client.auth_token.try_read().unwrap();
+        let refresh_token = client.refresh_token.try_read().unwrap();
+
+        assert_eq!(*auth_token, None);
+        assert_eq!(*refresh_token, None);
+    }
+
+    #[test]
+    fn test_client_with_tokens() {
+        let access_token = "test_access_token".to_string();
+        let refresh_token = "test_refresh_token".to_string();
+
+        let client = Client::with_tokens(access_token.clone(), refresh_token.clone());
+
+        // Test that tokens are set correctly
+        let auth_token = client.auth_token.try_read().unwrap();
+        let refresh_token_guard = client.refresh_token.try_read().unwrap();
+
+        assert_eq!(*auth_token, Some(access_token));
+        assert_eq!(*refresh_token_guard, Some(refresh_token));
     }
 }
