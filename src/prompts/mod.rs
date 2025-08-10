@@ -325,7 +325,7 @@ mod tests {
     #[test]
     fn test_prompt_registry() {
         let generators = PromptRegistry::get_generators();
-        assert_eq!(generators.len(), 2);
+        assert_eq!(generators.len(), 3);
 
         let db_generator = PromptRegistry::find_by_name("database_query_assistant");
         assert!(db_generator.is_some());
@@ -337,7 +337,7 @@ mod tests {
     #[test]
     fn test_get_available_prompts() {
         let prompts = list_prompts();
-        assert_eq!(prompts.len(), 2);
+        assert_eq!(prompts.len(), 3);
 
         let prompt_names: Vec<&str> = prompts.iter().map(|p| p.name.as_str()).collect();
         assert!(prompt_names.contains(&"database_query_assistant"));
