@@ -5,6 +5,13 @@ use tracing::{debug, error, info, trace};
 
 const CLOUD_API_BASE_URL: &str = "https://api.cloud.surrealdb.com/api/v1";
 
+/// A response from signing in to SurrealDB Cloud
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CloudSignInResponse {
+    pub id: String,
+    pub token: String,
+}
+
 /// A user in SurrealDB Cloud
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CloudUser {
@@ -18,9 +25,22 @@ pub struct CloudUser {
 pub struct CloudOrganization {
     pub id: String,
     pub name: String,
-    pub slug: String,
-    pub created_at: String,
-    pub updated_at: String,
+    pub user_role: Option<String>,
+    pub billing_info: Option<bool>,
+    pub payment_info: Option<bool>,
+    pub max_free_instances: Option<i32>,
+    pub max_paid_instances: Option<i32>,
+    pub member_count: Option<i32>,
+    pub plan: Option<CloudPlan>,
+}
+
+/// A plan in SurrealDB Cloud
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CloudPlan {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub regions: Vec<String>,
 }
 
 /// A cloud instance in SurrealDB Cloud
@@ -28,28 +48,31 @@ pub struct CloudOrganization {
 pub struct CloudInstance {
     pub id: String,
     pub name: String,
-    pub status: String,
-    pub created_at: String,
-    pub updated_at: String,
+    pub slug: Option<String>,
+    pub version: Option<String>,
+    pub available_versions: Option<Vec<String>>,
+    pub host: Option<String>,
+    pub region: Option<String>,
+    pub organization_id: Option<String>,
+    pub compute_units: Option<i32>,
+    pub state: Option<String>,
+    pub storage_size: Option<i32>,
+    pub can_update_storage_size: Option<bool>,
+    pub storage_size_update_cooloff_hours: Option<i32>,
 }
 
-/// A response from signing in to SurrealDB Cloud
+/// A cloud instance status in SurrealDB Cloud
 #[derive(Debug, Serialize, Deserialize)]
-pub struct CloudSignInResponse {
-    pub id: String,
-    pub token: String,
+pub struct CloudInstanceStatus {
+    pub phase: String,
+    pub db_backups: Vec<CloudInstanceBackup>,
 }
 
-/// A response from listing organizations in SurrealDB Cloud
+/// A cloud instance backup in SurrealDB Cloud
 #[derive(Debug, Serialize, Deserialize)]
-pub struct CloudOrganizationsResponse {
-    pub organizations: Vec<CloudOrganization>,
-}
-
-/// A response from listing cloud instances
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CloudInstancesResponse {
-    pub instances: Vec<CloudInstance>,
+pub struct CloudInstanceBackup {
+    pub snapshot_started_at: String,
+    pub snapshot_id: String,
 }
 
 /// A request to create a cloud instance
@@ -208,15 +231,17 @@ impl Client {
             error!("Failed to fetch organizations: {e}");
             return Err(anyhow::anyhow!("Failed to fetch organizations: {e}"));
         }
-        // Parse the returned response
-        let result: CloudOrganizationsResponse = response.json().await?;
+        // Parse the returned response as raw JSON
+        let json: serde_json::Value = response.json().await?;
+        // Parse the raw JSON into organizations
+        let result: Vec<CloudOrganization> = serde_json::from_value(json)?;
         // Output debugging information
         debug!(
-            organisations = result.organizations.len(),
+            organisations = result.len(),
             "Successfully fetched organizations",
         );
         // Return the organizations
-        Ok(result.organizations)
+        Ok(result)
     }
 
     /// List cloud instances in SurrealDB Cloud
@@ -239,15 +264,17 @@ impl Client {
             );
             return Err(anyhow::anyhow!("Failed to fetch cloud instances: {e}"));
         }
-        // Parse the returned response
-        let result: CloudInstancesResponse = response.json().await?;
+        // Parse the returned response as raw JSON
+        let json: serde_json::Value = response.json().await?;
+        // Parse the raw JSON into instances
+        let result: Vec<CloudInstance> = serde_json::from_value(json)?;
         // Output debugging information
         debug!(
-            instances = result.instances.len(),
+            instances = result.len(),
             "Successfully fetched cloud instances",
         );
         // Return the instances
-        Ok(result.instances)
+        Ok(result)
     }
 
     /// Create a cloud instance in SurrealDB Cloud
@@ -290,7 +317,7 @@ impl Client {
         info!(
             instance_id = result.instance.id,
             instance_name = result.instance.name,
-            instance_status = result.instance.status,
+            instance_state = result.instance.state.as_deref(),
             "Successfully created cloud instance",
         );
         // Return the instance
@@ -298,7 +325,7 @@ impl Client {
     }
 
     /// Pause a cloud instance in SurrealDB Cloud
-    pub async fn pause_instance(&self, instance_id: &str) -> Result<()> {
+    pub async fn pause_instance(&self, instance_id: &str) -> Result<CloudInstance> {
         // Output debugging information
         debug!(
             instance_id = instance_id,
@@ -317,17 +344,21 @@ impl Client {
             );
             return Err(anyhow::anyhow!("Failed to pause cloud instance: {e}"));
         }
+        // Parse the returned response as raw JSON
+        let json: serde_json::Value = response.json().await?;
+        // Parse the raw JSON into instance
+        let result: CloudInstance = serde_json::from_value(json)?;
         // Output debugging information
         info!(
             instance_id = instance_id,
             "Successfully paused cloud instance",
         );
-        // Return nothing
-        Ok(())
+        // Return the instance
+        Ok(result)
     }
 
     /// Resume a cloud instance in SurrealDB Cloud
-    pub async fn resume_instance(&self, instance_id: &str) -> Result<()> {
+    pub async fn resume_instance(&self, instance_id: &str) -> Result<CloudInstance> {
         // Output debugging information
         debug!(
             instance_id = instance_id,
@@ -346,17 +377,21 @@ impl Client {
             );
             return Err(anyhow::anyhow!("Failed to resume cloud instance: {e}"));
         }
+        // Parse the returned response as raw JSON
+        let json: serde_json::Value = response.json().await?;
+        // Parse the raw JSON into instance
+        let result: CloudInstance = serde_json::from_value(json)?;
         // Output debugging information
         info!(
             instance_id = instance_id,
             "Successfully resumed cloud instance",
         );
-        // Return nothing
-        Ok(())
+        // Return the instance
+        Ok(result)
     }
 
     /// Fetch the status for a cloud instance in SurrealDB Cloud
-    pub async fn get_instance_status(&self, instance_id: &str) -> Result<()> {
+    pub async fn get_instance_status(&self, instance_id: &str) -> Result<CloudInstanceStatus> {
         // Output debugging information
         debug!(
             instance_id = instance_id,
@@ -377,13 +412,19 @@ impl Client {
                 "Failed to fetch status for cloud instance: {e}"
             ));
         }
+        // Parse the returned response as raw JSON
+        let json: serde_json::Value = response.json().await?;
+        // Parse the raw JSON into instance status
+        let result: CloudInstanceStatus = serde_json::from_value(json)?;
         // Output debugging information
         info!(
             instance_id = instance_id,
+            phase = result.phase,
+            backup_count = result.db_backups.len(),
             "Successfully fetched status for cloud instance",
         );
-        // Return nothing
-        Ok(())
+        // Return the instance status
+        Ok(result)
     }
 }
 
@@ -416,5 +457,209 @@ mod tests {
 
         assert_eq!(*auth_token, Some(access_token));
         assert_eq!(*refresh_token_guard, Some(refresh_token));
+    }
+
+    #[test]
+    fn test_cloud_organization_deserialization() {
+        // Sample API response data (simplified version of what you provided)
+        let json_data = r#"
+        [
+            {
+                "id": "069mttg269u3hd0g88man5p1co",
+                "name": "Individual",
+                "billing_info": true,
+                "payment_info": false,
+                "max_free_instances": 1,
+                "max_paid_instances": 8,
+                "member_count": 1,
+                "user_role": "owner",
+                "plan": {
+                    "id": "069i2gp0kps51530vs38n951mc",
+                    "name": "Start Employee",
+                    "description": "Start",
+                    "regions": ["aws-euw1", "aws-use1"],
+                    "instance_types": [
+                        {
+                            "slug": "free",
+                            "display_name": "free",
+                            "description": "",
+                            "cpu": 0.25,
+                            "memory": 512,
+                            "compute_units": {"min": 1, "max": 1},
+                            "price_hour": 0,
+                            "enabled": true,
+                            "category": "free",
+                            "default_storage_size": 1,
+                            "max_storage_size": 1,
+                            "restricted": false
+                        }
+                    ]
+                },
+                "available_plans": [
+                    {
+                        "id": "069i2gp0kps51530vs38n951mc",
+                        "name": "Start Employee",
+                        "description": "Start"
+                    }
+                ]
+            }
+        ]
+        "#;
+
+        // Try to deserialize the JSON data
+        match serde_json::from_str::<Vec<CloudOrganization>>(json_data) {
+            Ok(organizations) => {
+                assert_eq!(organizations.len(), 1);
+                let org = &organizations[0];
+                assert_eq!(org.id, "069mttg269u3hd0g88man5p1co");
+                assert_eq!(org.name, "Individual");
+                assert_eq!(org.billing_info, Some(true));
+                assert_eq!(org.payment_info, Some(false));
+                assert_eq!(org.max_free_instances, Some(1));
+                assert_eq!(org.max_paid_instances, Some(8));
+                assert_eq!(org.member_count, Some(1));
+                assert_eq!(org.user_role, Some("owner".to_string()));
+                println!("✅ Successfully deserialized organization with new fields");
+            }
+            Err(e) => {
+                panic!("❌ Failed to deserialize: {}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_cloud_instance_deserialization() {
+        // Sample API response data for instances
+        let json_data = r#"
+        [
+            {
+                "id": "069qdvg8vltknarqrtdcntjpmo",
+                "name": "Test",
+                "slug": "discrete-lobste",
+                "version": "2.2.6",
+                "available_versions": ["2.3.6"],
+                "host": "discrete-lobste-069qdvg8vltknarqrtdcntjpmo.aws-euw1.surreal.cloud",
+                "region": "aws-euw1",
+                "type": {
+                    "slug": "free",
+                    "display_name": "free",
+                    "description": "",
+                    "cpu": 0.25,
+                    "memory": 512,
+                    "compute_units": {"min": 1, "max": 1},
+                    "price_hour": 0,
+                    "category": "free",
+                    "default_storage_size": 1,
+                    "max_storage_size": 1,
+                    "restricted": false
+                },
+                "organization_id": "069mttg269u3hd0g88man5p1co",
+                "compute_units": 1,
+                "state": "paused",
+                "storage_size": 1,
+                "can_update_storage_size": false,
+                "storage_size_update_cooloff_hours": 6,
+                "capabilities": {
+                    "allow_scripting": true,
+                    "allow_guests": false,
+                    "allowed_experimental": [],
+                    "denied_experimental": ["*"],
+                    "allowed_arbitrary_query": ["*"],
+                    "denied_arbitrary_query": [],
+                    "allowed_rpc_methods": ["*"],
+                    "denied_rpc_methods": [],
+                    "allowed_http_endpoints": ["*"],
+                    "denied_http_endpoints": [],
+                    "allowed_networks": [],
+                    "denied_networks": ["*"],
+                    "allowed_functions": ["*"],
+                    "denied_functions": []
+                }
+            }
+        ]
+        "#;
+
+        // Try to deserialize the JSON data
+        match serde_json::from_str::<Vec<CloudInstance>>(json_data) {
+            Ok(instances) => {
+                assert_eq!(instances.len(), 1);
+                let instance = &instances[0];
+                assert_eq!(instance.id, "069qdvg8vltknarqrtdcntjpmo");
+                assert_eq!(instance.name, "Test");
+                assert_eq!(instance.slug, Some("discrete-lobste".to_string()));
+                assert_eq!(instance.version, Some("2.2.6".to_string()));
+                assert_eq!(instance.available_versions, Some(vec!["2.3.6".to_string()]));
+                assert_eq!(
+                    instance.host,
+                    Some(
+                        "discrete-lobste-069qdvg8vltknarqrtdcntjpmo.aws-euw1.surreal.cloud"
+                            .to_string()
+                    )
+                );
+                assert_eq!(instance.region, Some("aws-euw1".to_string()));
+                assert_eq!(
+                    instance.organization_id,
+                    Some("069mttg269u3hd0g88man5p1co".to_string())
+                );
+                assert_eq!(instance.compute_units, Some(1));
+                assert_eq!(instance.state, Some("paused".to_string()));
+                assert_eq!(instance.storage_size, Some(1));
+                assert_eq!(instance.can_update_storage_size, Some(false));
+                assert_eq!(instance.storage_size_update_cooloff_hours, Some(6));
+                println!("✅ Successfully deserialized instance with new fields");
+            }
+            Err(e) => {
+                panic!("❌ Failed to deserialize: {}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_cloud_instance_status_deserialization() {
+        // Sample API response data for instance status
+        let json_data = r#"
+        {
+            "phase": "WaitingForDeployment",
+            "db_backups": [
+                {
+                    "snapshot_started_at": "2025-07-01T09:03:26Z",
+                    "snapshot_id": "8a638067-76a7-44d9-81a4-5c4eb71a8838"
+                },
+                {
+                    "snapshot_started_at": "2025-06-26T14:04:46Z",
+                    "snapshot_id": "e9be2656-ab22-4c14-9c1c-ca8342be5150"
+                },
+                {
+                    "snapshot_started_at": "2025-06-19T10:21:23Z",
+                    "snapshot_id": "57760f45-67cc-49cc-bae9-27610c8af051"
+                }
+            ]
+        }
+        "#;
+
+        // Try to deserialize the JSON data
+        match serde_json::from_str::<CloudInstanceStatus>(json_data) {
+            Ok(status) => {
+                assert_eq!(status.phase, "WaitingForDeployment");
+                assert_eq!(status.db_backups.len(), 3);
+
+                let backup1 = &status.db_backups[0];
+                assert_eq!(backup1.snapshot_started_at, "2025-07-01T09:03:26Z");
+                assert_eq!(backup1.snapshot_id, "8a638067-76a7-44d9-81a4-5c4eb71a8838");
+
+                let backup2 = &status.db_backups[1];
+                assert_eq!(backup2.snapshot_started_at, "2025-06-26T14:04:46Z");
+                assert_eq!(backup2.snapshot_id, "e9be2656-ab22-4c14-9c1c-ca8342be5150");
+
+                let backup3 = &status.db_backups[2];
+                assert_eq!(backup3.snapshot_started_at, "2025-06-19T10:21:23Z");
+                assert_eq!(backup3.snapshot_id, "57760f45-67cc-49cc-bae9-27610c8af051");
+
+                println!("✅ Successfully deserialized instance status with backups");
+            }
+            Err(e) => {
+                panic!("❌ Failed to deserialize: {}", e);
+            }
+        }
     }
 }

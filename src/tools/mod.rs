@@ -936,9 +936,13 @@ Examples:
                 serde_json::json!({
                     "id": org.id,
                     "name": org.name,
-                    "slug": org.slug,
-                    "created_at": org.created_at,
-                    "updated_at": org.updated_at
+                    "billing_info": org.billing_info,
+                    "payment_info": org.payment_info,
+                    "max_free_instances": org.max_free_instances,
+                    "max_paid_instances": org.max_paid_instances,
+                    "member_count": org.member_count,
+                    "user_role": org.user_role,
+                    "plan": org.plan,
                 })
             })
             .collect();
@@ -979,9 +983,17 @@ Examples:
                 serde_json::json!({
                     "id": instance.id,
                     "name": instance.name,
-                    "status": instance.status,
-                    "created_at": instance.created_at,
-                    "updated_at": instance.updated_at
+                    "slug": instance.slug,
+                    "version": instance.version,
+                    "available_versions": instance.available_versions,
+                    "host": instance.host,
+                    "region": instance.region,
+                    "organization_id": instance.organization_id,
+                    "compute_units": instance.compute_units,
+                    "state": instance.state,
+                    "storage_size": instance.storage_size,
+                    "can_update_storage_size": instance.can_update_storage_size,
+                    "storage_size_update_cooloff_hours": instance.storage_size_update_cooloff_hours,
                 })
             })
             .collect();
@@ -1007,14 +1019,15 @@ Examples:
         // Output debugging information
         debug!(instance_id = instance_id, "Pausing cloud instance");
         // Pause the cloud instance
-        self.cloud_client
+        let instance = self
+            .cloud_client
             .pause_instance(&instance_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         // Create the result JSON
         let result = serde_json::json!({
             "message": "Successfully paused cloud instance",
-            "instance_id": instance_id,
+            "instance": instance,
         });
         // Return the MCP result
         Ok(CallToolResult::success(vec![Content::text(
@@ -1033,14 +1046,15 @@ Examples:
         // Output debugging information
         debug!(instance_id = instance_id, "Resuming cloud instance");
         // Resume the cloud instance
-        self.cloud_client
+        let instance = self
+            .cloud_client
             .resume_instance(&instance_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         // Create the result JSON
         let result = serde_json::json!({
             "message": "Successfully resumed cloud instance",
-            "instance_id": instance_id,
+            "instance": instance,
         });
         // Return the MCP result
         Ok(CallToolResult::success(vec![Content::text(
@@ -1048,7 +1062,7 @@ Examples:
         )]))
     }
 
-    #[tool(description = "Resume SurrealDB Cloud instance")]
+    #[tool(description = "Get SurrealDB Cloud instance status")]
     pub async fn get_cloud_instance_status(
         &self,
         params: Parameters<CloudInstanceParams>,
@@ -1059,33 +1073,22 @@ Examples:
         // Output debugging information
         debug!("Getting status for cloud instance: {instance_id}");
         // Fetch the cloud instance status
-        self.cloud_client
+        let status = self
+            .cloud_client
             .get_instance_status(&instance_id)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         // Create the result JSON
         let result = serde_json::json!({
-            "message": "Successfully fetched status for cloud instance",
             "instance_id": instance_id,
+            "phase": status.phase,
+            "db_backups": status.db_backups,
+            "backup_count": status.db_backups.len()
         });
         // Return the MCP result
         Ok(CallToolResult::success(vec![Content::text(
             result.to_string(),
         )]))
-    }
-
-    #[tool(description = "Resume SurrealDB Cloud instance")]
-    pub async fn get_cloud_instance_metrics(
-        &self,
-        params: Parameters<CloudInstanceParams>,
-    ) -> Result<CallToolResult, McpError> {
-        let CloudInstanceParams { instance_id } = params.0;
-        // Increment tool usage counter
-        counter!("surrealmcp.tools.get_cloud_instance_metrics").increment(1);
-        // Output debugging information
-        debug!("Getting metrics for cloud instance: {instance_id}");
-        let msg = "get_cloud_instance_metrics not implemented".to_string();
-        Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
 
     #[tool(description = "Create SurrealDB Cloud instance")]
@@ -1110,13 +1113,7 @@ Examples:
         // Create the result JSON
         let result = serde_json::json!({
             "message": "Successfully created cloud instance",
-            "instance": {
-                "id": instance.id,
-                "name": instance.name,
-                "status": instance.status,
-                "created_at": instance.created_at,
-                "updated_at": instance.updated_at
-            }
+            "instance": instance,
         });
         // Return the MCP result
         Ok(CallToolResult::success(vec![Content::text(
