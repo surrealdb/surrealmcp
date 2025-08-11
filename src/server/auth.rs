@@ -149,10 +149,10 @@ impl JwksManager {
         // Acquire a write lock on the cache
         let mut cache = self.cache.write().await;
         // Check if we have a valid cached JWKS
-        if let Some(cache) = cache.as_ref() {
-            if !cache.is_expired() {
-                return Ok(cache.clone());
-            }
+        if let Some(cache) = cache.as_ref()
+            && !cache.is_expired()
+        {
+            return Ok(cache.clone());
         }
         // Fetch new JWKS
         debug!("JWK cache expired or missing, fetching new JWKS");
@@ -361,31 +361,31 @@ async fn validate_jwe_token(
             ));
         }
         // Validate expiration if enabled
-        if config.validate_expiration {
-            if let Some(exp) = claims.exp {
-                let current_time = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(|e| format!("Failed to get current time: {e}"))?
-                    .as_secs();
-                if current_time > exp + config.clock_skew_seconds {
-                    return Err(format!(
-                        "Token 'exp' invalid: expired at {exp}, current time {current_time}",
-                    ));
-                }
+        if config.validate_expiration
+            && let Some(exp) = claims.exp
+        {
+            let current_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| format!("Failed to get current time: {e}"))?
+                .as_secs();
+            if current_time > exp + config.clock_skew_seconds {
+                return Err(format!(
+                    "Token 'exp' invalid: expired at {exp}, current time {current_time}",
+                ));
             }
         }
         // Validate issued at if enabled
-        if config.validate_issued_at {
-            if let Some(iat) = claims.iat {
-                let current_time = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(|e| format!("Failed to get current time: {e}"))?
-                    .as_secs();
-                if iat > current_time + config.clock_skew_seconds {
-                    return Err(format!(
-                        "Token 'iat' invalid: issued at {iat}, current time {current_time}",
-                    ));
-                }
+        if config.validate_issued_at
+            && let Some(iat) = claims.iat
+        {
+            let current_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| format!("Failed to get current time: {e}"))?
+                .as_secs();
+            if iat > current_time + config.clock_skew_seconds {
+                return Err(format!(
+                    "Token 'iat' invalid: issued at {iat}, current time {current_time}",
+                ));
             }
         }
         // Output debugging information
@@ -487,35 +487,35 @@ async fn validate_jwt_token(
     let token_data = decode::<TokenClaims>(token, &key, &validation)
         .map_err(|e| format!("Failed to validate JWT token: {e}"))?;
     // Validate expiration time
-    if config.validate_expiration {
-        if let Some(exp) = token_data.claims.exp {
-            // Get the current time
-            let current_time = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| format!("Failed to get current time: {e}"))?
-                .as_secs();
-            // Check for expiration, allowing for clock skew
-            if current_time > exp + config.clock_skew_seconds {
-                return Err(format!(
-                    "Token 'exp' invalid: expired at {exp}, current time {current_time}",
-                ));
-            }
+    if config.validate_expiration
+        && let Some(exp) = token_data.claims.exp
+    {
+        // Get the current time
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| format!("Failed to get current time: {e}"))?
+            .as_secs();
+        // Check for expiration, allowing for clock skew
+        if current_time > exp + config.clock_skew_seconds {
+            return Err(format!(
+                "Token 'exp' invalid: expired at {exp}, current time {current_time}",
+            ));
         }
     }
     // Validate issued at time
-    if config.validate_issued_at {
-        if let Some(iat) = token_data.claims.iat {
-            // Get the current time
-            let current_time = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| format!("Failed to get current time: {e}"))?
-                .as_secs();
-            // Check for issued at, allowing for clock skew
-            if iat > current_time + config.clock_skew_seconds {
-                return Err(format!(
-                    "Token 'iat' invalid: issued at {iat}, current time {current_time}",
-                ));
-            }
+    if config.validate_issued_at
+        && let Some(iat) = token_data.claims.iat
+    {
+        // Get the current time
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| format!("Failed to get current time: {e}"))?
+            .as_secs();
+        // Check for issued at, allowing for clock skew
+        if iat > current_time + config.clock_skew_seconds {
+            return Err(format!(
+                "Token 'iat' invalid: issued at {iat}, current time {current_time}",
+            ));
         }
     }
     // Output debugging information

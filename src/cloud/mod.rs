@@ -590,7 +590,7 @@ mod tests {
                 println!("✅ Successfully deserialized organization with new fields");
             }
             Err(e) => {
-                panic!("❌ Failed to deserialize: {}", e);
+                panic!("❌ Failed to deserialize: {e}");
             }
         }
     }
@@ -677,7 +677,7 @@ mod tests {
                 println!("✅ Successfully deserialized instance with new fields");
             }
             Err(e) => {
-                panic!("❌ Failed to deserialize: {}", e);
+                panic!("❌ Failed to deserialize: {e}");
             }
         }
     }
@@ -726,7 +726,7 @@ mod tests {
                 println!("✅ Successfully deserialized instance status with backups");
             }
             Err(e) => {
-                panic!("❌ Failed to deserialize: {}", e);
+                panic!("❌ Failed to deserialize: {e}");
             }
         }
     }
@@ -750,7 +750,7 @@ mod tests {
                 println!("✅ Successfully deserialized instance auth response");
             }
             Err(e) => {
-                panic!("❌ Failed to deserialize: {}", e);
+                panic!("❌ Failed to deserialize: {e}");
             }
         }
     }

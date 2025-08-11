@@ -267,8 +267,7 @@ mod tests {
         let result = convert_json_to_surreal(malformed, "test_param");
         // The current implementation might not fail on this input, so let's check if it succeeds
         // and if so, verify the output format instead
-        if result.is_ok() {
-            let val = result.unwrap();
+        if let Ok(val) = result {
             let val_str = val.to_string();
             assert_eq!(val_str, "'invalid json {'");
         } else {
