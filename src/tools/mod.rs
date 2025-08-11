@@ -1183,69 +1183,67 @@ Examples:
             "Attempting to connect to SurrealDB endpoint"
         );
         // Check if endpoint is restricted by startup configuration
-        if let Some(configured_endpoint) = &self.endpoint {
-            if endpoint != *configured_endpoint {
-                // Output debugging information
-                warn!(
-                    connection_id = %self.connection_id,
-                    requested_endpoint = %endpoint,
-                    configured_endpoint = %configured_endpoint,
-                    "Connection rejected: endpoint not allowed by server configuration"
-                );
-                // Increment error metrics
-                counter!("surrealmcp.total_errors").increment(1);
-                counter!("surrealmcp.total_configuration_errors").increment(1);
-                counter!("surrealmcp.errors.connect_endpoint").increment(1);
-                // Return error message
-                return Err(McpError::internal_error(
-                    format!(
-                        "Cannot connect to endpoint '{endpoint}'. Server is configured to only use endpoint '{configured_endpoint}'"
-                    ),
-                    None,
-                ));
-            }
+        if let Some(configured_endpoint) = &self.endpoint
+            && endpoint != *configured_endpoint
+        {
+            // Output debugging information
+            warn!(
+                connection_id = %self.connection_id,
+                requested_endpoint = %endpoint,
+                configured_endpoint = %configured_endpoint,
+                "Connection rejected: endpoint not allowed by server configuration"
+            );
+            // Increment error metrics
+            counter!("surrealmcp.total_errors").increment(1);
+            counter!("surrealmcp.total_configuration_errors").increment(1);
+            counter!("surrealmcp.errors.connect_endpoint").increment(1);
+            // Return error message
+            return Err(McpError::internal_error(
+                format!(
+                    "Cannot connect to endpoint '{endpoint}'. Server is configured to only use endpoint '{configured_endpoint}'"
+                ),
+                None,
+            ));
         }
         // Check if namespace is restricted by startup configuration
-        if let Some(configured_namespace) = &self.namespace {
-            if let Some(namespace) = &namespace {
-                if namespace != configured_namespace {
-                    // Output debugging information
-                    warn!(
-                        connection_id = %self.connection_id,
-                        requested_namespace = %namespace,
-                        configured_namespace = %configured_namespace,
-                        "Connection rejected: namespace not allowed by server configuration"
-                    );
-                    // Return error message
-                    return Err(McpError::internal_error(
-                        format!(
-                            "Cannot use namespace '{namespace}'. Server is configured to only use namespace '{configured_namespace}'"
-                        ),
-                        None,
-                    ));
-                }
-            }
+        if let Some(configured_namespace) = &self.namespace
+            && let Some(namespace) = &namespace
+            && namespace != configured_namespace
+        {
+            // Output debugging information
+            warn!(
+                connection_id = %self.connection_id,
+                requested_namespace = %namespace,
+                configured_namespace = %configured_namespace,
+                "Connection rejected: namespace not allowed by server configuration"
+            );
+            // Return error message
+            return Err(McpError::internal_error(
+                format!(
+                    "Cannot use namespace '{namespace}'. Server is configured to only use namespace '{configured_namespace}'"
+                ),
+                None,
+            ));
         }
         // Check if database is restricted by startup configuration
-        if let Some(configured_database) = &self.database {
-            if let Some(database) = &database {
-                if database != configured_database {
-                    // Output debugging information
-                    warn!(
-                        connection_id = %self.connection_id,
-                        requested_database = %database,
-                        configured_database = %configured_database,
-                        "Connection rejected: database not allowed by server configuration"
-                    );
-                    // Return error message
-                    return Err(McpError::internal_error(
-                        format!(
-                            "Cannot use database '{database}'. Server is configured to only use database '{configured_database}'"
-                        ),
-                        None,
-                    ));
-                }
-            }
+        if let Some(configured_database) = &self.database
+            && let Some(database) = &database
+            && database != configured_database
+        {
+            // Output debugging information
+            warn!(
+                connection_id = %self.connection_id,
+                requested_database = %database,
+                configured_database = %configured_database,
+                "Connection rejected: database not allowed by server configuration"
+            );
+            // Return error message
+            return Err(McpError::internal_error(
+                format!(
+                    "Cannot use database '{database}'. Server is configured to only use database '{configured_database}'"
+                ),
+                None,
+            ));
         }
         // Get the namespace to use for the connection
         let ns = namespace.or_else(|| self.namespace.clone());
@@ -1303,22 +1301,22 @@ Examples:
                 }
             };
             // Check if instance state is ready
-            if let Some(state) = &instance.state {
-                if state != "ready" {
-                    error!(
-                        connection_id = %self.connection_id,
-                        instance_id = %instance_id,
-                        state = %state,
-                        "Cloud instance is not ready to connect"
-                    );
-                    counter!("surrealmcp.total_errors").increment(1);
-                    counter!("surrealmcp.total_connection_errors").increment(1);
-                    counter!("surrealmcp.errors.connect_endpoint").increment(1);
-                    return Err(McpError::internal_error(
-                        format!("Cloud instance '{instance_id}' is not ready (state: {state})"),
-                        None,
-                    ));
-                }
+            if let Some(state) = &instance.state
+                && state != "ready"
+            {
+                error!(
+                    connection_id = %self.connection_id,
+                    instance_id = %instance_id,
+                    state = %state,
+                    "Cloud instance is not ready to connect"
+                );
+                counter!("surrealmcp.total_errors").increment(1);
+                counter!("surrealmcp.total_connection_errors").increment(1);
+                counter!("surrealmcp.errors.connect_endpoint").increment(1);
+                return Err(McpError::internal_error(
+                    format!("Cloud instance '{instance_id}' is not ready (state: {state})"),
+                    None,
+                ));
             }
             // Get the host from the instance
             let host = instance.host.ok_or_else(|| {
@@ -1606,27 +1604,27 @@ Examples:
             "Attempting to change namespace"
         );
         // Check if namespace is restricted by startup configuration
-        if let Some(configured_namespace) = &self.namespace {
-            if namespace != *configured_namespace {
-                // Output debugging information
-                warn!(
-                    connection_id = %self.connection_id,
-                    requested_namespace = %namespace,
-                    configured_namespace = %configured_namespace,
-                    "Namespace change rejected: namespace not allowed by server configuration"
-                );
-                // Increment error metrics
-                counter!("surrealmcp.total_errors").increment(1);
-                counter!("surrealmcp.total_configuration_errors").increment(1);
-                counter!("surrealmcp.errors.use_namespace").increment(1);
-                // Return error message
-                return Err(McpError::internal_error(
-                    format!(
-                        "Cannot use namespace '{namespace}'. Server is configured to only use namespace '{configured_namespace}'"
-                    ),
-                    None,
-                ));
-            }
+        if let Some(configured_namespace) = &self.namespace
+            && namespace != *configured_namespace
+        {
+            // Output debugging information
+            warn!(
+                connection_id = %self.connection_id,
+                requested_namespace = %namespace,
+                configured_namespace = %configured_namespace,
+                "Namespace change rejected: namespace not allowed by server configuration"
+            );
+            // Increment error metrics
+            counter!("surrealmcp.total_errors").increment(1);
+            counter!("surrealmcp.total_configuration_errors").increment(1);
+            counter!("surrealmcp.errors.use_namespace").increment(1);
+            // Return error message
+            return Err(McpError::internal_error(
+                format!(
+                    "Cannot use namespace '{namespace}'. Server is configured to only use namespace '{configured_namespace}'"
+                ),
+                None,
+            ));
         }
         // Lock the database connection
         let db_guard = self.db.lock().await;
@@ -1732,27 +1730,27 @@ Examples:
             "Attempting to change database"
         );
         // Check if database is restricted by startup configuration
-        if let Some(configured_database) = &self.database {
-            if database != *configured_database {
-                // Output debugging information
-                warn!(
-                    connection_id = %self.connection_id,
-                    requested_database = %database,
-                    configured_database = %configured_database,
-                    "Database change rejected: database not allowed by server configuration"
-                );
-                // Increment error metrics
-                counter!("surrealmcp.total_errors").increment(1);
-                counter!("surrealmcp.total_configuration_errors").increment(1);
-                counter!("surrealmcp.errors.use_database").increment(1);
-                // Return error message
-                return Err(McpError::internal_error(
-                    format!(
-                        "Cannot use database '{database}'. Server is configured to only use database '{configured_database}'"
-                    ),
-                    None,
-                ));
-            }
+        if let Some(configured_database) = &self.database
+            && database != *configured_database
+        {
+            // Output debugging information
+            warn!(
+                connection_id = %self.connection_id,
+                requested_database = %database,
+                configured_database = %configured_database,
+                "Database change rejected: database not allowed by server configuration"
+            );
+            // Increment error metrics
+            counter!("surrealmcp.total_errors").increment(1);
+            counter!("surrealmcp.total_configuration_errors").increment(1);
+            counter!("surrealmcp.errors.use_database").increment(1);
+            // Return error message
+            return Err(McpError::internal_error(
+                format!(
+                    "Cannot use database '{database}'. Server is configured to only use database '{configured_database}'"
+                ),
+                None,
+            ));
         }
         // Lock the database connection
         let db_guard = self.db.lock().await;
@@ -1995,14 +1993,14 @@ impl ServerHandler for SurrealService {
         // Output debugging information
         debug!("Initializing MCP server");
         // Get the bearer token from the extensions
-        if let Some(parts) = ctx.extensions.get::<Parts>() {
-            if let Some(token) = parts.extensions.get::<String>() {
-                self.cloud_client
-                    .client_token
-                    .write()
-                    .await
-                    .replace(token.clone());
-            }
+        if let Some(parts) = ctx.extensions.get::<Parts>()
+            && let Some(token) = parts.extensions.get::<String>()
+        {
+            self.cloud_client
+                .client_token
+                .write()
+                .await
+                .replace(token.clone());
         }
         // Initialize the connection using startup configuration
         if let Err(e) = self.initialize_connection().await {
