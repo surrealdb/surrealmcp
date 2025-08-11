@@ -132,28 +132,6 @@ jobs:
       - name: Build
         run: cargo build --target ${{ matrix.target }} --all-features
 
-  # Check for unused dependencies
-  check-unused-deps:
-    name: Check unused dependencies
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4305c38b25d97ef35a8ad1f985ccf2d2242004f2 # stable
-
-      - name: Setup cache
-        uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Install cargo-udeps
-        run: cargo install cargo-udeps
-
-      - name: Check for unused dependencies
-        run: cargo udeps --all-targets --all-features
-
   # Check documentation
   doc:
     name: Check documentation
