@@ -55,11 +55,9 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-latest
-          - target: x86_64-apple-darwin
-            runner: macos-latest
-          - target: x86_64-pc-windows-msvc
-            runner: windows-latest
+            runner: runner-amd64-large
+          - target: aarch64-unknown-linux-gnu
+            runner: runner-arm64-large
 
     runs-on: ${{ matrix.runner }}
     steps:
@@ -110,11 +108,9 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-latest
-          - target: x86_64-apple-darwin
-            runner: macos-latest
-          - target: x86_64-pc-windows-msvc
-            runner: windows-latest
+            runner: runner-amd64-large
+          - target: aarch64-unknown-linux-gnu
+            runner: runner-arm64-large
 
     runs-on: ${{ matrix.runner }}
     steps:
