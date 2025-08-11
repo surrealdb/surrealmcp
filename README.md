@@ -210,6 +210,57 @@ When integrating with the MCP server, clients should:
 
 The audience value ensures that tokens are issued specifically for the MCP server instance.
 
+## Available Tools
+
+SurrealMCP provides a comprehensive set of tools for interacting with SurrealDB databases and SurrealDB Cloud:
+
+### Database Operations
+
+- **Query**: Execute raw SurrealQL queries with parameterized inputs
+- **Select**: Query records with filtering, sorting, and pagination
+- **Insert**: Insert new records into tables
+- **Create**: Create single records with specific IDs
+- **Upsert**: Create or update records based on conditions
+- **Update**: Modify existing records with patch operations
+- **Delete**: Remove records from the database
+- **Relate**: Create relationships between records
+
+### Connection Management
+
+- **Connect Endpoint**: Connect to different SurrealDB endpoints including:
+  - Local instances: `memory`, `file:/path`, `rocksdb:/path`
+  - Remote instances: `ws://host:port`, `http://host:port`
+  - SurrealDB Cloud instances: `cloud:instance_id`
+- **Use Namespace**: Switch between namespaces
+- **Use Database**: Switch between databases
+- **List Namespaces**: List the defined namespaces
+- **List Databases**: List the defined databases
+- **Disconnect Endpoint**: Close the current connection
+
+### SurrealDB Cloud Operations
+
+- **List Cloud Organizations**: Get available organizations
+- **List Cloud Instances**: Get instances for an organization
+- **Create Cloud Instance**: Create new cloud instances
+- **Pause/Resume Cloud Instance**: Manage instance lifecycle
+- **Get Cloud Instance Status**: Check instance health and backups
+
+### Cloud Connection Feature
+
+The new cloud connection feature allows you to connect directly to SurrealDB Cloud instances using the `connect_endpoint` tool with the `cloud:instance_id` format:
+
+```bash
+# Connect to a SurrealDB Cloud instance
+connect_endpoint('cloud:abc123def456', 'myapp', 'production')
+```
+
+This feature:
+- Automatically fetches authentication tokens from the SurrealDB Cloud API
+- Validates instance readiness before connecting
+- Establishes secure connections using the temporary auth token
+- Supports namespace and database specification
+- Handles connection errors gracefully with detailed logging
+
 ## API Endpoints
 
 ### Health Check

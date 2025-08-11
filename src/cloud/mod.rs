@@ -61,6 +61,12 @@ pub struct CloudInstance {
     pub storage_size_update_cooloff_hours: Option<i32>,
 }
 
+/// A response from getting auth token for a cloud instance
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CloudInstanceAuth {
+    pub token: String,
+}
+
 /// A cloud instance status in SurrealDB Cloud
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CloudInstanceStatus {
@@ -277,6 +283,37 @@ impl Client {
         Ok(result)
     }
 
+    /// Get a single cloud instance by ID
+    pub async fn get_instance(&self, instance_id: &str) -> Result<CloudInstance> {
+        // Output debugging information
+        debug!(
+            instance_id = instance_id,
+            "Fetching cloud instance from SurrealDB Cloud",
+        );
+        // Send the request
+        let response = self.get(&format!("/instances/{instance_id}")).await?;
+        // Check the response status
+        if !response.status().is_success() {
+            let e = response.text().await?;
+            error!(
+                instance_id = instance_id,
+                "Failed to fetch cloud instance: {e}",
+            );
+            return Err(anyhow::anyhow!("Failed to fetch cloud instance: {e}"));
+        }
+        // Parse the returned response as raw JSON
+        let json: serde_json::Value = response.json().await?;
+        // Parse the raw JSON into instance
+        let result: CloudInstance = serde_json::from_value(json)?;
+        // Output debugging information
+        debug!(
+            instance_id = instance_id,
+            "Successfully fetched cloud instance",
+        );
+        // Return the instance
+        Ok(result)
+    }
+
     /// Create a cloud instance in SurrealDB Cloud
     pub async fn create_instance(
         &self,
@@ -425,6 +462,37 @@ impl Client {
         );
         // Return the instance status
         Ok(result)
+    }
+
+    /// Get authentication token for a cloud instance
+    pub async fn get_instance_auth(&self, instance_id: &str) -> Result<String> {
+        // Output debugging information
+        debug!(
+            instance_id = instance_id,
+            "Fetching auth token for cloud instance",
+        );
+        // Send the request
+        let response = self.get(&format!("/instances/{instance_id}/auth")).await?;
+        // Check the response status
+        if !response.status().is_success() {
+            let e = response.text().await?;
+            error!(
+                instance_id = instance_id,
+                "Failed to fetch auth token for cloud instance: {e}",
+            );
+            return Err(anyhow::anyhow!(
+                "Failed to fetch auth token for cloud instance: {e}"
+            ));
+        }
+        // Parse the returned response
+        let result: CloudInstanceAuth = response.json().await?;
+        // Output debugging information
+        debug!(
+            instance_id = instance_id,
+            "Successfully fetched auth token for cloud instance",
+        );
+        // Return the auth token
+        Ok(result.token)
     }
 }
 
@@ -656,6 +724,30 @@ mod tests {
                 assert_eq!(backup3.snapshot_id, "57760f45-67cc-49cc-bae9-27610c8af051");
 
                 println!("✅ Successfully deserialized instance status with backups");
+            }
+            Err(e) => {
+                panic!("❌ Failed to deserialize: {}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_cloud_instance_auth_response_deserialization() {
+        // Sample API response data for instance auth token
+        let json_data = r#"
+        {
+            "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        }
+        "#;
+
+        // Try to deserialize the JSON data
+        match serde_json::from_str::<CloudInstanceAuth>(json_data) {
+            Ok(auth_response) => {
+                assert_eq!(
+                    auth_response.token,
+                    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+                );
+                println!("✅ Successfully deserialized instance auth response");
             }
             Err(e) => {
                 panic!("❌ Failed to deserialize: {}", e);

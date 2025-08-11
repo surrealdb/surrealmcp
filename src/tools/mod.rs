@@ -181,7 +181,9 @@ pub struct CreateCloudInstanceParams {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct ConnectParams {
-    #[schemars(description = "The SurrealDB endpoint URL.")]
+    #[schemars(
+        description = "The SurrealDB endpoint URL. For cloud instances, use 'cloud:instance_id' format."
+    )]
     pub endpoint: String,
     #[schemars(description = "The namespace to use for organizing data.")]
     pub namespace: Option<String>,
@@ -1138,17 +1140,23 @@ Connect to a different SurrealDB endpoint.
 
 This function allows you to dynamically connect to a different SurrealDB endpoint 
 during your session. The endpoint can be any supported SurrealDB engine type including 
-memory (for testing), file-based storage, distributed storage, or remote connections.
+memory (for testing), file-based storage, distributed storage, remote connections, or 
+SurrealDB Cloud instances.
 
 Each client connection is completely isolated, so you can switch between different 
 databases as needed. The connection is persistent until you disconnect or connect to 
 a different endpoint. The username and password are optional.
+
+For SurrealDB Cloud instances, use the format 'cloud:instance_id' where instance_id 
+is the ID of your cloud instance. The tool will automatically fetch the authentication 
+token from the SurrealDB Cloud API and establish a secure connection.
 
 Examples:
 - connect_endpoint('memory')  # For testing
 - connect_endpoint('file:/tmp/mydb', Some('myapp'), Some('production'))  # Local file storage
 - connect_endpoint('ws://localhost:8000', Some('myapp'), Some('production'), Some('root'), Some('password'))  # Remote connection
 - connect_endpoint('rocksdb:/data/mydb', Some('analytics'), Some('events'))  # High-performance local storage
+- connect_endpoint('cloud:abc123def456', Some('myapp'), Some('production'))  # SurrealDB Cloud instance
 "#)]
     pub async fn connect_endpoint(
         &self,
@@ -1247,16 +1255,108 @@ Examples:
         let user = username.or_else(|| self.user.clone());
         // Get the password to use for authentication
         let pass = password.or_else(|| self.pass.clone());
+        // Check if this is a cloud connection
+        let connection = if endpoint.starts_with("cloud:") {
+            // Extract instance ID from cloud:instance_id format
+            let instance_id = endpoint.strip_prefix("cloud:").ok_or_else(|| {
+                McpError::internal_error(
+                    "Invalid cloud endpoint format. Expected 'cloud:instance_id'".to_string(),
+                    None,
+                )
+            })?;
+            // Get the instance details to get the host
+            let instance = match self.cloud_client.get_instance(instance_id).await {
+                Ok(instance) => instance,
+                Err(e) => {
+                    error!(
+                        connection_id = %self.connection_id,
+                        instance_id = %instance_id,
+                        error = %e,
+                        "Failed to get cloud instance details"
+                    );
+                    counter!("surrealmcp.total_errors").increment(1);
+                    counter!("surrealmcp.total_connection_errors").increment(1);
+                    counter!("surrealmcp.errors.connect_endpoint").increment(1);
+                    return Err(McpError::internal_error(
+                        format!("Failed to get cloud instance details '{instance_id}': {e}"),
+                        None,
+                    ));
+                }
+            };
+            // Get the auth token for the cloud instance
+            let token = match self.cloud_client.get_instance_auth(instance_id).await {
+                Ok(token) => token,
+                Err(e) => {
+                    error!(
+                        connection_id = %self.connection_id,
+                        instance_id = %instance_id,
+                        error = %e,
+                        "Failed to get cloud instance token"
+                    );
+                    counter!("surrealmcp.total_errors").increment(1);
+                    counter!("surrealmcp.total_connection_errors").increment(1);
+                    counter!("surrealmcp.errors.connect_endpoint").increment(1);
+                    return Err(McpError::internal_error(
+                        format!("Failed to get cloud instance auth token '{instance_id}': {e}"),
+                        None,
+                    ));
+                }
+            };
+            // Check if instance state is ready
+            if let Some(state) = &instance.state {
+                if state != "ready" {
+                    error!(
+                        connection_id = %self.connection_id,
+                        instance_id = %instance_id,
+                        state = %state,
+                        "Cloud instance is not ready to connect"
+                    );
+                    counter!("surrealmcp.total_errors").increment(1);
+                    counter!("surrealmcp.total_connection_errors").increment(1);
+                    counter!("surrealmcp.errors.connect_endpoint").increment(1);
+                    return Err(McpError::internal_error(
+                        format!("Cloud instance '{instance_id}' is not ready (state: {state})"),
+                        None,
+                    ));
+                }
+            }
+            // Get the host from the instance
+            let host = instance.host.ok_or_else(|| {
+                error!(
+                    connection_id = %self.connection_id,
+                    instance_id = %instance_id,
+                    "Cloud instance has no host information"
+                );
+                counter!("surrealmcp.total_errors").increment(1);
+                counter!("surrealmcp.total_connection_errors").increment(1);
+                counter!("surrealmcp.errors.connect_endpoint").increment(1);
+                McpError::internal_error(
+                    format!("Cloud instance '{instance_id}' has no host information"),
+                    None,
+                )
+            })?;
+            // Create a new SurrealDB connection with the token
+            db::create_client_connection_with_token(
+                &host,
+                &token,
+                user.as_deref(),
+                pass.as_deref(),
+                ns.as_deref(),
+                db.as_deref(),
+            )
+            .await
+        } else {
+            db::create_client_connection(
+                &endpoint,
+                user.as_deref(),
+                pass.as_deref(),
+                ns.as_deref(),
+                db.as_deref(),
+            )
+            .await
+        };
         // Create a new SurrealDB connection
-        match db::create_client_connection(
-            &endpoint,
-            user.as_deref(),
-            pass.as_deref(),
-            ns.as_deref(),
-            db.as_deref(),
-        )
-        .await
-        {
+        match connection {
             Ok(instance) => {
                 // Calculate the elapsed time
                 let duration = start_time.elapsed();
