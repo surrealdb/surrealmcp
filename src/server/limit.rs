@@ -25,17 +25,10 @@ impl KeyExtractor for RobustIpKeyExtractor {
         // Try to extract IP from various headers in order of preference
         let ip = req
             .headers()
-            .get("Authorization")
-            .and_then(|token| token.to_str().ok())
-            .and_then(|token| token.strip_prefix("Bearer "))
-            .map(|token| token.trim())
-            .or_else(|| {
-                req.headers()
-                    .get("X-Forwarded-For")
-                    .and_then(|h| h.to_str().ok())
-                    .and_then(|s| s.split(',').next())
-                    .map(|s| s.trim())
-            })
+            .get("X-Forwarded-For")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|s| s.split(',').next())
+            .map(|s| s.trim())
             .or_else(|| {
                 req.headers()
                     .get("X-Real-IP") // Nginx
