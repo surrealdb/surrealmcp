@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::fs;
 use tokio::net::{TcpListener, UnixListener};
+use tokio::signal;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{debug, error, info, warn};
 
@@ -46,6 +47,33 @@ pub struct ServerConfig {
 // Global metrics
 static ACTIVE_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
 static TOTAL_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
+
+/// Handle double ctrl-c shutdown with force quit
+async fn handle_double_ctrl_c() {
+    let mut ctrl_c_count = 0;
+    let mut interval = tokio::time::interval(Duration::from_secs(2));
+
+    loop {
+        tokio::select! {
+            _ = signal::ctrl_c() => {
+                ctrl_c_count += 1;
+                if ctrl_c_count == 1 {
+                    info!("Received first Ctrl+C signal. Press Ctrl+C again within 2 seconds to force quit.");
+                    interval.reset();
+                } else if ctrl_c_count >= 2 {
+                    warn!("Received second Ctrl+C signal. Force quitting immediately.");
+                    std::process::exit(1);
+                }
+            }
+            _ = interval.tick() => {
+                if ctrl_c_count > 0 {
+                    info!("Ctrl+C timeout expired. Resuming normal operation.");
+                    ctrl_c_count = 0;
+                }
+            }
+        }
+    }
+}
 
 /// Start the MCP server based on the provided configuration
 pub async fn start_server(config: ServerConfig) -> Result<()> {
@@ -117,6 +145,8 @@ async fn start_stdio_server(config: ServerConfig) -> Result<()> {
             "Failed to initialize database connection"
         );
     }
+    // Spawn the double ctrl-c handler
+    let _signal = tokio::spawn(handle_double_ctrl_c());
     // Create an MCP server instance for stdin/stdout
     match rmcp::serve_server(service.clone(), (tokio::io::stdin(), tokio::io::stdout())).await {
         Ok(server) => {
@@ -178,6 +208,8 @@ async fn start_unix_server(config: ServerConfig) -> Result<()> {
         socket_path = %socket_path.display(),
         "Starting MCP server in Unix socket mode"
     );
+    // Spawn the double ctrl-c handler
+    let _signal = tokio::spawn(handle_double_ctrl_c());
     // Main server loop for Unix socket connections
     loop {
         // Accept incoming connections from the Unix socket
@@ -410,13 +442,11 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
             require_bearer_auth(config, req, next)
         }));
     }
+    // Use the shared double ctrl-c handler
+    let signal = handle_double_ctrl_c();
     // Serve the Axum router over HTTP
     axum::serve(listener, router)
-        .with_graceful_shutdown(async {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("failed to install Ctrl+C handler");
-        })
+        .with_graceful_shutdown(signal)
         .await?;
     // All ok
     Ok(())
