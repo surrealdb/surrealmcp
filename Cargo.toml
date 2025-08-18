@@ -39,7 +39,7 @@ surrealdb = { version = "2.3.7", features = [
 tokio = { version = "1.47.1", features = ["full"] }
 tower = "0.5.2"
 tower-http = { version = "0.6.6", features = ["trace", "cors"] }
-tower_governor = "0.7.0"
+tower_governor = "0.8.0"
 tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
