@@ -339,12 +339,16 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
         .await
         .map_err(|e| anyhow!("Failed to bind to address {bind_address}: {e}"))?;
     // List servers for authentication discovery
-    let auth_servers = Json(json!({
+    let protected_resource = Json(json!({
         "resource": server_url,
         "bearer_methods_supported": ["header"],
         "authorization_servers": [auth_server],
         "scopes_supported": ["openid", "profile", "email", "offline_access"],
-        "audience": auth_audience
+        "audience": [
+            "https://surrealdb.us.auth0.com/userinfo",
+            "https://surrealdb.us.auth0.com/api/v2/",
+            auth_audience,
+        ],
     }));
     // Create CORS layer for /.well-known endpoints
     let cors_layer = CorsLayer::new()
@@ -357,7 +361,7 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
         .allow_credentials(false);
     // Create a service for /.well-known endpoints with CORS
     let well_known_service = Router::new()
-        .route("/oauth-protected-resource", get(auth_servers))
+        .route("/oauth-protected-resource", get(protected_resource))
         .layer(cors_layer);
     // Create a session manager for the HTTP server
     let session_manager = Arc::new(LocalSessionManager::default());
