@@ -39,7 +39,6 @@ pub struct ServerConfig {
     pub rate_limit_burst: u32,
     pub auth_server: String,
     pub auth_audience: String,
-    pub jwe_decryption_key: Option<String>,
     pub cloud_access_token: Option<String>,
     pub cloud_refresh_token: Option<String>,
 }
@@ -319,7 +318,6 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
         rate_limit_burst,
         auth_server,
         auth_audience,
-        jwe_decryption_key,
         cloud_access_token,
         cloud_refresh_token,
         ..
@@ -433,7 +431,6 @@ async fn start_http_server(config: ServerConfig) -> Result<()> {
         // Set the token validation config
         let token_config = TokenValidationConfig {
             expected_audience: auth_audience.clone(),
-            jwe_decryption_key: jwe_decryption_key.clone(),
             ..Default::default()
         };
         // Add bearer authentication middleware
@@ -479,7 +476,6 @@ mod tests {
             rate_limit_burst: 200,
             auth_server: "https://auth.surrealdb.com".to_string(),
             auth_audience: "https://custom.audience.com/".to_string(),
-            jwe_decryption_key: None,
             cloud_access_token: None,
             cloud_refresh_token: None,
         };

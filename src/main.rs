@@ -33,7 +33,6 @@ async fn main() -> Result<()> {
             rate_limit_burst,
             auth_server,
             auth_audience,
-            jwe_decryption_key,
             cloud_access_token,
             cloud_refresh_token,
         } => {
@@ -52,7 +51,6 @@ async fn main() -> Result<()> {
                 rate_limit_burst,
                 auth_server,
                 auth_audience,
-                jwe_decryption_key,
                 cloud_access_token,
                 cloud_refresh_token,
             };

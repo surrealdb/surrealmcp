@@ -64,9 +64,6 @@ pub enum Commands {
             default_value = "https://mcp.surrealdb.com/"
         )]
         auth_audience: String,
-        /// Base64-encoded key for JWE decryption
-        #[arg(long, env = "SURREAL_MCP_JWE_DECRYPTION_KEY")]
-        jwe_decryption_key: Option<String>,
         /// SurrealDB Cloud access token (used instead of fetching tokens)
         #[arg(long, env = "SURREAL_MCP_CLOUD_ACCESS_TOKEN")]
         cloud_access_token: Option<String>,
