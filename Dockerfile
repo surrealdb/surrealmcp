@@ -7,7 +7,7 @@ RUN dnf install -y gcc gcc-c++ make git cmake openssl-devel zlib-devel python3.1
 RUN dnf clean all
 
 # Install Rust
-ARG RUST_VERSION=1.86.0
+ARG RUST_VERSION=1.89.0
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > /tmp/rustup.sh
 RUN bash /tmp/rustup.sh -y --default-toolchain ${RUST_VERSION}
 ENV PATH="/root/.cargo/bin:${PATH}"
