@@ -48,6 +48,464 @@ SurrealMCP is the official Model Context Protocol ([MCP](https://modelcontextpro
 cargo install --path .
 ```
 
+<!-- -------------------------------------------------- -->
+<!-- AI tools -->
+<!-- -------------------------------------------------- -->
+
+## AI coding tools integration
+
+SurrealMCP can be integrated with various AI coding tools and assistants to enable AI-powered database operations. Below are installation and configuration instructions for popular AI coding platforms.
+
+### Which AI assistant are you using?
+
+- **Using [Cursor](https://www.cursor.com)?** → [View the Cursor installation instructions](#cursor-installation)
+- **Using [Cline](https://cline.bot)?** → [View the Cline installation instructions](#cline-installation)
+- **Using [Claude Desktop](https://claude.ai)?** → [View the Claude installation instructions](#claude-installation)
+- **Using [GitHub Copilot](https://github.com/copilot) in VS Code?** → [View the Copilot installation instructions](#copilot-installation)
+- **Using [Roo Code](https://roocode.com) in VS Code?** → [View the Roo Code installation instructions](#roo-code-installation)
+- **Using [Windsurf](https://windsurf.com)?** → [View the Windsurf installation instructions](#windsurf-installation)
+- **Using [n8n](https://n8n.io)?** → [View the n8n integration instructions](#integration-with-n8n)
+
+### Key Terms
+
+- **MCP Server**: A server that implements the Model Context Protocol, allowing AI assistants to access external tools and resources.
+- **MCP Client**: The IDE, application (like VS Code with Cline or Claude Desktop) that connects to MCP servers.
+- **[SurrealDB](https://surrealdb.com)**: A scalable, distributed, document-graph database with real-time capabilities.
+
+<!-- -------------------------------------------------- -->
+<!-- Cursor -->
+<!-- -------------------------------------------------- -->
+
+### Cursor installation
+
+#### Installation for Cursor
+
+1. **Install SurrealMCP:**
+   ```bash
+   cargo install --path .
+   ```
+
+2. **Configure Cursor:**
+   - Open Cursor
+   - Go to Settings > Cursor Settings
+   - Find the MCP Servers option and enable it
+   - Click on "New MCP Server"
+
+3. **Add the SurrealMCP configuration:**
+   ```json
+   {
+     "name": "SurrealDB",
+     "command": "surrealmcp",
+     "args": ["start"]
+   }
+   ```
+
+   <details>
+   <summary>Configuration with environment variables</summary>
+
+   ```json
+   {
+     "name": "SurrealDB",
+     "command": "surrealmcp",
+     "args": ["start"],
+     "env": {
+       "SURREALDB_URL": "ws://localhost:8000/rpc",
+       "SURREALDB_NS": "myapp",
+       "SURREALDB_DB": "production",
+       "SURREALDB_USER": "admin",
+       "SURREALDB_PASS": "password123"
+     }
+   }
+   ```
+   </details>
+
+4. **Verify installation:**
+   - Open Cursor Chat
+   - You should see SurrealDB tools available in the tools list
+
+<!-- -------------------------------------------------- -->
+<!-- Cline -->
+<!-- -------------------------------------------------- -->
+
+### Cline installation
+
+#### One-Click Installation for Cline VS Code Extension
+
+1. **Install SurrealMCP:**
+  - [Build and install from source](#installation)
+  - [Configure with Docker](#deployment-with-docker)
+
+2. **Configure Cline:**
+
+   Edit the file at: `%APPDATA%\Code\User\globalStorage\saoudrizwan.claude-dev\settings\cline_mcp_settings.json`
+
+   Add the following configuration:
+   ```json
+   {
+     "mcpServers": {
+       "SurrealDB": {
+         "command": "surrealmcp",
+         "args": ["start"],
+         "disabled": false,
+         "autoApprove": []
+       }
+     }
+   }
+   ```
+
+   <details>
+   <summary>Configuration with environment variables</summary>
+
+   ```json
+   {
+     "mcpServers": {
+       "SurrealDB": {
+         "command": "surrealmcp",
+         "args": ["start"],
+         "env": {
+           "SURREALDB_URL": "ws://localhost:8000/rpc",
+           "SURREALDB_NS": "myapp",
+           "SURREALDB_DB": "production",
+           "SURREALDB_USER": "admin",
+           "SURREALDB_PASS": "password123"
+         },
+         "disabled": false,
+         "autoApprove": []
+       }
+     }
+   }
+   ```
+   </details>
+
+3. **Verify installation:**
+   - Open Cline in VS Code
+   - Ask Cline to "list available MCP servers"
+   - You should see "SurrealDB" in the list
+
+<!-- -------------------------------------------------- -->
+<!-- Claude -->
+<!-- -------------------------------------------------- -->
+
+### Claude installation
+
+#### Installation for Claude Desktop App
+
+1. **Install SurrealMCP:**
+  - [Build and install from source](#installation)
+  - [Configure with Docker](#deployment-with-docker)
+
+2. **Configure Claude Desktop:**
+
+   Edit the Claude Desktop App's MCP settings file:
+   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - Linux: `~/.config/Claude/claude_desktop_config.json`
+
+   Add the following configuration:
+   ```json
+   {
+     "mcpServers": {
+       "SurrealDB": {
+         "command": "surrealmcp",
+         "args": ["start"],
+         "disabled": false,
+         "autoApprove": []
+       }
+     }
+   }
+   ```
+
+   <details>
+   <summary>Configuration with environment variables</summary>
+
+   ```json
+   {
+     "mcpServers": {
+       "SurrealDB": {
+         "command": "surrealmcp",
+         "args": ["start"],
+         "env": {
+           "SURREALDB_URL": "ws://localhost:8000/rpc",
+           "SURREALDB_NS": "myapp",
+           "SURREALDB_DB": "production",
+           "SURREALDB_USER": "admin",
+           "SURREALDB_PASS": "password123"
+         },
+         "disabled": false,
+         "autoApprove": []
+       }
+     }
+   }
+   ```
+   </details>
+
+3. **Verify installation:**
+   - Ask Claude to "list available MCP servers"
+   - You should see "SurrealDB" in the list
+
+<!-- -------------------------------------------------- -->
+<!-- Copilot -->
+<!-- -------------------------------------------------- -->
+
+### Copilot installation
+
+#### Installation for GitHub Copilot in VS Code
+
+1. **Install SurrealMCP:**
+  - [Build and install from source](#installation)
+  - [Configure with Docker](#deployment-with-docker)
+
+2. **Configure VSCode:**
+   
+   Create a file at: `.vscode/mcp.json` in your workspace
+
+   Add the following configuration:
+   ```json
+   {
+     "servers": {
+       "SurrealDB": {
+         "type": "stdio",
+         "command": "surrealmcp",
+         "args": ["start"]
+       }
+     }
+   }
+   ```
+
+   <details>
+   <summary>Configuration with environment variables</summary>
+
+   ```json
+   {
+     "inputs": [
+       {
+         "type": "promptString",
+         "id": "surrealdb-url",
+         "description": "SurrealDB URL",
+         "default": "ws://localhost:8000/rpc"
+       },
+       {
+         "type": "promptString",
+         "id": "surrealdb-ns",
+         "description": "SurrealDB Namespace"
+       },
+       {
+         "type": "promptString",
+         "id": "surrealdb-db",
+         "description": "SurrealDB Database"
+       },
+       {
+         "type": "promptString",
+         "id": "surrealdb-user",
+         "description": "SurrealDB Username"
+       },
+       {
+         "type": "promptString",
+         "id": "surrealdb-pass",
+         "description": "SurrealDB Password",
+         "password": true
+       }
+     ],
+     "servers": {
+       "SurrealDB": {
+         "type": "stdio",
+         "command": "surrealmcp",
+         "args": ["start"],
+         "env": {
+           "SURREALDB_URL": "${input:surrealdb-url}",
+           "SURREALDB_NS": "${input:surrealdb-ns}",
+           "SURREALDB_DB": "${input:surrealdb-db}",
+           "SURREALDB_USER": "${input:surrealdb-user}",
+           "SURREALDB_PASS": "${input:surrealdb-pass}"
+         }
+       }
+     }
+   }
+   ```
+   </details>
+
+3. **Verify installation:**
+   - Open GitHub Copilot Chat in VS Code
+   - Select "Agent" mode from the dropdown
+   - Click the "Tools" button to see available tools
+   - You should see "SurrealDB" tools in the list
+
+<!-- -------------------------------------------------- -->
+<!-- Roo Code -->
+<!-- -------------------------------------------------- -->
+
+### Roo Code Installation
+
+#### Installation for Roo Code in VS Code
+
+1. **Install SurrealMCP:**
+  - [Build and install from source](#installation)
+  - [Configure with Docker](#deployment-with-docker)
+
+2. **Configure Roo Code:**
+
+   Click the MCP icon in the top navigation of the Roo Code pane, then select "Edit MCP Settings" to open the configuration file.
+
+   Add the following configuration:
+   ```json
+   {
+     "mcpServers": {
+       "SurrealDB": {
+         "command": "surrealmcp",
+         "args": ["start"],
+         "disabled": false,
+         "autoApprove": []
+       }
+     }
+   }
+   ```
+
+   <details>
+   <summary>Configuration with environment variables</summary>
+
+   ```json
+   {
+     "mcpServers": {
+       "SurrealDB": {
+         "command": "surrealmcp",
+         "args": ["start"],
+         "env": {
+           "SURREALDB_URL": "ws://localhost:8000/rpc",
+           "SURREALDB_NS": "myapp",
+           "SURREALDB_DB": "production",
+           "SURREALDB_USER": "admin",
+           "SURREALDB_PASS": "password123"
+         },
+         "disabled": false,
+         "autoApprove": []
+       }
+     }
+   }
+   ```
+   </details>
+
+4. **Verify installation:**
+   - Open Roo Code in VS Code
+   - Click the MCP icon to see available servers
+   - You should see "SurrealDB" in the list
+
+<!-- -------------------------------------------------- -->
+<!-- Windsurf -->
+<!-- -------------------------------------------------- -->
+
+### Windsurf installation
+
+#### Installation for Windsurf
+
+1. **Install SurrealMCP:**
+  - [Build and install from source](#installation)
+  - [Configure with Docker](#deployment-with-docker)
+
+2. **Configure Windsurf:**
+   - Open Windsurf on your system
+   - Navigate to the Settings page
+   - Go to the Cascade tab
+   - Find the Model Context Protocol (MCP) Servers section
+   - Click on "View raw config" to open the configuration file (typically at `~/.codeium/windsurf/mcp_config.json`)
+
+3. **Add the SurrealMCP configuration:**
+   ```json
+   {
+     "servers": [
+       {
+         "name": "SurrealDB",
+         "command": "surrealmcp",
+         "args": ["start"]
+       }
+     ]
+   }
+   ```
+
+   <details>
+   <summary>Configuration with environment variables</summary>
+
+   ```json
+   {
+     "servers": [
+       {
+         "name": "SurrealDB",
+         "command": "surrealmcp",
+         "args": ["start"],
+         "env": {
+           "SURREALDB_URL": "ws://localhost:8000/rpc",
+           "SURREALDB_NS": "myapp",
+           "SURREALDB_DB": "production",
+           "SURREALDB_USER": "admin",
+           "SURREALDB_PASS": "password123"
+         }
+       }
+     ]
+   }
+   ```
+   </details>
+
+4. **Verify installation:**
+   - Open Cascade in Windsurf
+   - You should see SurrealDB tools available in the tools list
+
+<!-- -------------------------------------------------- -->
+<!-- n8n -->
+<!-- -------------------------------------------------- -->
+
+### Integration with n8n
+
+You can integrate SurrealMCP with [n8n](https://n8n.io/) using the [MCP Client Tool](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.toolmcp/) node.
+
+<!-- -------------------------------------------------- -->
+<!-- Docker -->
+<!-- -------------------------------------------------- -->
+
+### Deployment with Docker
+
+#### Using Docker with STDIO
+
+To use SurrealMCP without installing `cargo` you can use Docker. SurrealMCP runs locally via stdio with a single Docker command. Instantly start an in-memory or local database at the edge directly from your AI tool, with ephemeral or persisted data. 
+
+```json
+{
+  "mcpServers": {
+    "SurrealDB": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "surrealdb/surrealmcp:latest",
+        "start"
+      ]
+    }
+  }
+}
+```
+
+#### Using Docker with HTTP
+
+To use SurrealMCP without installing `cargo` you can use Docker. SurrealMCP can be run as an HTTP server with a single Docker command. Instantly start an in-memory or local database at the edge directly from your AI tool, with ephemeral or persisted data. 
+
+```json
+{
+  "mcpServers": {
+    "SurrealDB": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-p", "8080:8080",
+        "surrealdb/surrealmcp:latest",
+        "start",
+        "--bind-address", "127.0.0.1:8080",
+        "--server-url", "http://localhost:8080"
+      ]
+    }
+  }
+}
+```
+
 ## Usage
 
 ### Basic Usage
