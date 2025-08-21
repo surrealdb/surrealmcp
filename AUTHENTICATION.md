@@ -27,12 +27,9 @@ This document explains the current token validation implementation and what you 
    
 ## How to perform full token validation
 
-1. **Get the JWE decryption key**
+1. **JWE Token Validation**
 
-To validate JWE tokens with all claims, you need to provide the decryption key from SurrealDB's auth service, by using the following command-line argument, or environment varible:
-
-- **Command-line argument**: `--jwe_decryption_key`
-- **Environment Variable**: `SURREALDB_JWE_DECRYPTION_KEY`
+JWE tokens are validated by checking the header structure and issuer. The server validates that the token uses the expected algorithm ("dir") and encryption method ("A256GCM") and that the issuer matches the expected value.
 
 ## Configuration pptions
 
@@ -119,14 +116,12 @@ Here's an example of using multiple authentication options together:
 surrealmcp \
   --server_url "http://localhost:8000" \
   --auth_server "https://auth.surrealdb.com" \
-  --auth_audience "https://your-mcp-server.com" \
-  --jwe_decryption_key "your-decryption-key"
+  --auth_audience "https://your-mcp-server.com"
 
 # Using environment variables
 export SURREAL_MCP_SERVER_URL="http://localhost:8000"
 export SURREAL_MCP_AUTH_SERVER="https://auth.surrealdb.com"
 export SURREAL_MCP_AUTH_AUDIENCE="https://your-mcp-server.com"
-export SURREALDB_JWE_DECRYPTION_KEY="your-decryption-key"
 surrealmcp
 ```
 

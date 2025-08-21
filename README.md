@@ -104,7 +104,6 @@ export SURREAL_MCP_EXPECTED_AUDIENCE="https://custom.audience.com/"
 export SURREAL_MCP_RATE_LIMIT_RPS="100"
 export SURREAL_MCP_RATE_LIMIT_BURST="200"
 export SURREAL_MCP_AUTH_REQUIRED="false"
-export SURREAL_MCP_JWE_DECRYPTION_KEY="base64-encoded-32-byte-key"
 export SURREAL_MCP_CLOUD_ACCESS_TOKEN="your_access_token_here"
 export SURREAL_MCP_CLOUD_REFRESH_TOKEN="your_refresh_token_here"
 
@@ -116,7 +115,7 @@ surrealmcp start
 The server supports Bearer token authentication with SurrealDB Cloud. When authentication is enabled:
 
 1. **JWT Tokens**: Validates JWT tokens using JWKS (JSON Web Key Set) from the auth server
-2. **JWE Tokens**: Validates JWE headers and tokens (when a decryption key is specified)
+2. **JWE Tokens**: Validates JWE header structure and issuer
 3. **Audience validation**: Validates the `aud` claim against the expected audience
 4. **Issuer validation**: Validates the `iss` claim against the expected issuer
 
@@ -138,23 +137,7 @@ This is useful when:
 - You want to restrict tokens to specific applications
 - You're integrating with custom authentication systems
 
-### JWE Decryption Key Configuration
 
-For JWE (JSON Web Encryption) tokens, you can specify a base64-encoded decryption key:
-
-```bash
-# Set a JWE decryption key
-surrealmcp start --jwe-decryption-key "base64-encoded-32-byte-key"
-
-# Or via environment variable
-export SURREAL_MCP_JWE_DECRYPTION_KEY="base64-encoded-32-byte-key"
-surrealmcp start
-```
-
-This is useful when:
-- Your application uses JWE tokens for enhanced security
-- You need to decrypt and validate the full token contents
-- You're working with encrypted tokens that require a specific decryption key
 
 ### Pre-configured Cloud Authentication Tokens
 

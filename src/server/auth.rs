@@ -6,9 +6,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use josekit::jwe::JweContext;
-use josekit::jwe::alg::direct::DirectJweAlgorithm;
-use josekit::jwk::Jwk;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 
 use serde::{Deserialize, Serialize};
@@ -216,8 +213,6 @@ pub struct TokenValidationConfig {
     pub expected_audience: String,
     /// Public key for JWT validation
     pub jwt_public_key: Option<String>,
-    /// Base64-encoded key for JWE decryption
-    pub jwe_decryption_key: Option<String>,
     /// Whether to validate token expiration
     pub validate_expiration: bool,
     /// Whether to validate token issued at
@@ -234,7 +229,6 @@ impl Default for TokenValidationConfig {
             expected_issuer: EXPECTED_ISSUER.to_string(),
             expected_audience: EXPECTED_AUDIENCE.to_string(),
             jwt_public_key: None,
-            jwe_decryption_key: None,
             validate_expiration: true,
             validate_issued_at: true,
             clock_skew_seconds: 300, // 5 minutes
@@ -280,10 +274,9 @@ struct TokenClaims {
     sub: Option<String>,
 }
 
-/// Validate and decrypt a JWE token from SurrealDB auth service
+/// Validate a JWE token header from SurrealDB auth service
 ///
-/// This function validates the JWE token header structure and issuer,
-/// and if a decryption key is provided, decrypts the token to access full claims.
+/// This function validates the JWE token header structure and issuer.
 /// For SurrealDB tokens using "dir" algorithm with A256GCM encryption.
 async fn validate_jwe_token(
     token: &str,
@@ -317,116 +310,29 @@ async fn validate_jwe_token(
             header.enc
         ));
     }
-    // Check if we have a decryption key
-    if let Some(decryption_key) = &config.jwe_decryption_key {
-        // Perform full token validation when decryption key is available
-        debug!("JWE decryption key provided, performing token validation");
-        // Decode the decryption key from base64
-        let key_bytes = URL_SAFE_NO_PAD
-            .decode(decryption_key)
-            .map_err(|e| format!("Failed to decode decryption key: {e}"))?;
-        // Create a JWK for decryption
-        let mut jwk = Jwk::new("oct");
-        // Set the JWK decryption key
-        jwk.set_parameter(
-            "k",
-            Some(serde_json::Value::String(
-                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&key_bytes),
-            )),
-        )
-        .map_err(|e| format!("Failed to set JWK parameter: {e}"))?;
-        // Create a JWE algorithm for direct key algorithm
-        let algorithm = DirectJweAlgorithm::Dir;
-        // Create a JWE decrypter for direct key algorithm
-        let decrypter = algorithm
-            .decrypter_from_jwk(&jwk)
-            .map_err(|e| format!("Failed to create JWE decrypter: {e}"))?;
-        // Create JWE context for deserialization
-        let jwe_context = JweContext::new();
-        // Deserialize and decrypt the JWE token
-        let (decrypted, _header) = jwe_context
-            .deserialize_compact(token.as_bytes(), &decrypter)
-            .map_err(|e| format!("Failed to decrypt JWE token: {e}"))?;
-        // Parse the decrypted payload as JWT claims
-        let payload_str = String::from_utf8(decrypted)
-            .map_err(|e| format!("Failed to convert decrypted payload to string: {e}"))?;
-        // Parse the decrypted payload as JWT claims
-        let claims: TokenClaims = serde_json::from_str(&payload_str)
-            .map_err(|e| format!("Failed to parse decrypted JWT claims: {e}"))?;
-        // Validate the issuer from decrypted claims
-        if claims.iss != config.expected_issuer {
-            return Err(format!(
-                "Invalid issuer: expected {}, got {}",
-                config.expected_issuer, claims.iss
-            ));
-        }
-        // Validate expiration if enabled
-        if config.validate_expiration
-            && let Some(exp) = claims.exp
-        {
-            let current_time = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| format!("Failed to get current time: {e}"))?
-                .as_secs();
-            if current_time > exp + config.clock_skew_seconds {
-                return Err(format!(
-                    "Token 'exp' invalid: expired at {exp}, current time {current_time}",
-                ));
-            }
-        }
-        // Validate issued at if enabled
-        if config.validate_issued_at
-            && let Some(iat) = claims.iat
-        {
-            let current_time = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| format!("Failed to get current time: {e}"))?
-                .as_secs();
-            if iat > current_time + config.clock_skew_seconds {
-                return Err(format!(
-                    "Token 'iat' invalid: issued at {iat}, current time {current_time}",
-                ));
-            }
-        }
-        // Output debugging information
-        debug!(
-            token = %token,
-            issuer = %claims.iss,
-            audience = ?claims.aud,
-            subject = ?claims.sub,
-            expiration = ?claims.exp,
-            issued_at = ?claims.iat,
-            "JWE token validated successfully (with decryption key)"
-        );
-        // Return the claims
-        Ok(claims)
-    } else {
-        // Fallback to header-only validation when no decryption key is available
-        debug!("No JWE decryption key provided, performing header validation");
-        // Validate the issuer from header
-        if header.iss != config.expected_issuer {
-            return Err(format!(
-                "Invalid issuer: expected {}, got {}",
-                config.expected_issuer, header.iss
-            ));
-        }
-        // Create the default claims
-        let claims = TokenClaims {
-            iss: header.iss,
-            aud: None,
-            exp: None,
-            iat: None,
-            sub: None,
-        };
-        // Output debugging information
-        debug!(
-            token = %token,
-            issuer = %claims.iss,
-            "JWE token header validated successfully (without decryption key)"
-        );
-        // Return the claims
-        Ok(claims)
+    // Validate the issuer from header
+    if header.iss != config.expected_issuer {
+        return Err(format!(
+            "Invalid issuer: expected {}, got {}",
+            config.expected_issuer, header.iss
+        ));
     }
+    // Create the default claims
+    let claims = TokenClaims {
+        iss: header.iss,
+        aud: None,
+        exp: None,
+        iat: None,
+        sub: None,
+    };
+    // Output debugging information
+    debug!(
+        token = %token,
+        issuer = %claims.iss,
+        "JWE token validated successfully"
+    );
+    // Return the claims
+    Ok(claims)
 }
 
 /// Validate a standard JWT token using JWKS
@@ -571,7 +477,7 @@ async fn validate_bearer_token(
 /// Security considerations:
 /// - Validates token structure and issuer
 /// - For JWT tokens: validates audience, expiration, and issued at using JWKS
-/// - For JWE tokens: validates header structure only (requires decryption key for full validation)
+/// - For JWE tokens: validates header structure and issuer only
 /// - Supports both JWE and JWT token formats
 /// - Logs validation failures for monitoring
 /// - Uses proper HTTP status codes and headers
@@ -687,29 +593,6 @@ mod tests {
         assert!(result.unwrap().iss == EXPECTED_ISSUER);
     }
 
-    #[tokio::test]
-    async fn test_jwe_token_with_decryption_key() {
-        // This test demonstrates how to configure JWE decryption
-        // In a real scenario, you would provide the actual decryption key
-        let config = TokenValidationConfig {
-            jwe_decryption_key: Some("base64-encoded-32-byte-key".to_string()),
-            ..Default::default()
-        };
-
-        // This would be a real JWE token encrypted with the provided key
-        let token = "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIiwiaXNzIjoiaHR0cHM6Ly9hdXRoLnN1cnJlYWxkYi5jb20vIn0..i2Rd5nBEMkJSz6dC.KWp44r7imTAq0nOEXYGC6J4ABuaLFt_4EKFYIUEjN7sNB98aiRatF7nfoopZUqVsp4OWHA1AtnBL8FNuIeHZwH1WthdhAb3P4cbE-KvgrfS3RFyRCXqX9tqzxF9K3wTAvAnI3Lyp510jt9k3ytNKycfJi1mlXKw-WpU8WfqlgKRVd4QkWAn_OKMjfOZDgcCfiKxoHY5FYF77KymTQfQbauKjt4kpLFuFsJf5MleplV5T6cOy-ehJSbfsOUVeRNSeMdkZ4eLLG_vvTNJB.lJop5ReVf6pWw5rb_E5ILg";
-
-        // The test should fail because the decryption key is invalid
-        // This demonstrates that the JWE decryption is being attempted
-        let result = validate_jwe_token(token, &config).await;
-        assert!(result.is_err());
-        let error = result.unwrap_err();
-        assert!(
-            error.contains("Failed to decode decryption key")
-                || error.contains("Failed to decrypt JWE token")
-        );
-    }
-
     #[test]
     fn test_token_validation_config_default() {
         let config = TokenValidationConfig::default();
@@ -727,7 +610,6 @@ mod tests {
             expected_issuer: "https://custom.issuer.com/".to_string(),
             expected_audience: "https://custom.audience.com/".to_string(),
             jwt_public_key: None,
-            jwe_decryption_key: Some("custom-jwe-key".to_string()),
             validate_expiration: false,
             validate_issued_at: false,
             clock_skew_seconds: 600,
@@ -736,10 +618,6 @@ mod tests {
 
         assert_eq!(config.expected_issuer, "https://custom.issuer.com/");
         assert_eq!(config.expected_audience, "https://custom.audience.com/");
-        assert_eq!(
-            config.jwe_decryption_key,
-            Some("custom-jwe-key".to_string())
-        );
         assert!(!config.validate_expiration);
         assert!(!config.validate_issued_at);
         assert_eq!(config.clock_skew_seconds, 600);
@@ -908,23 +786,6 @@ mod tests {
             "https://custom.audience.com/"
         );
         assert_eq!(custom_config.expected_issuer, EXPECTED_ISSUER);
-        assert!(custom_config.validate_expiration);
-        assert!(custom_config.validate_issued_at);
-    }
-
-    #[tokio::test]
-    async fn test_jwe_decryption_key_configuration() {
-        let custom_config = TokenValidationConfig {
-            jwe_decryption_key: Some("base64-encoded-32-byte-key".to_string()),
-            ..Default::default()
-        };
-
-        assert_eq!(
-            custom_config.jwe_decryption_key,
-            Some("base64-encoded-32-byte-key".to_string())
-        );
-        assert_eq!(custom_config.expected_issuer, EXPECTED_ISSUER);
-        assert_eq!(custom_config.expected_audience, EXPECTED_AUDIENCE);
         assert!(custom_config.validate_expiration);
         assert!(custom_config.validate_issued_at);
     }
