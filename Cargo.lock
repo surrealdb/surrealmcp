@@ -551,7 +551,7 @@ dependencies = [
  "bitflags",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "lazy_static",
  "lazycell",
  "log",
@@ -1682,6 +1682,29 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.3",
  "no-std-compat",
+ "nonzero_ext",
+ "parking_lot",
+ "portable-atomic",
+ "quanta",
+ "rand 0.9.2",
+ "smallvec",
+ "spinning_top",
+ "web-time",
+]
+
+[[package]]
+name = "governor"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "444405bbb1a762387aa22dd569429533b54a1d8759d35d3b64cb39b0293eaa19"
+dependencies = [
+ "cfg-if",
+ "dashmap 6.1.0",
+ "futures-sink",
+ "futures-timer",
+ "futures-util",
+ "getrandom 0.3.3",
+ "hashbrown 0.15.5",
  "nonzero_ext",
  "parking_lot",
  "portable-atomic",
@@ -4536,7 +4559,7 @@ dependencies = [
  "axum-extra",
  "base64 0.22.1",
  "clap",
- "governor",
+ "governor 0.10.1",
  "http",
  "jsonwebtoken",
  "metrics",
@@ -4954,7 +4977,7 @@ checksum = "84e6672c7510df74859726427edea641674dad1aeeb30057b87335b1ba23b843"
 dependencies = [
  "axum",
  "forwarded-header-value",
- "governor",
+ "governor 0.8.1",
  "http",
  "pin-project",
  "thiserror 2.0.12",
