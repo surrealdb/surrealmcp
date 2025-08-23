@@ -2,7 +2,6 @@ use axum::extract::Request;
 use axum::http::{Response, StatusCode};
 use governor::middleware::NoOpMiddleware;
 use metrics::counter;
-use std::sync::Arc;
 use tower_governor::{
     GovernorLayer, errors::GovernorError, governor::GovernorConfigBuilder,
     key_extractor::KeyExtractor,
@@ -84,7 +83,7 @@ impl KeyExtractor for RobustIpKeyExtractor {
 pub fn create_rate_limit_layer(
     rps: u32,
     burst: u32,
-) -> GovernorLayer<RobustIpKeyExtractor, NoOpMiddleware> {
+) -> GovernorLayer<RobustIpKeyExtractor, NoOpMiddleware, axum::body::Body> {
     // Output debugging information
     debug!("Configuring the HTTP rate limiter");
     // Create the rate limit configuration
@@ -92,22 +91,19 @@ pub fn create_rate_limit_layer(
         .per_second(rps as u64)
         .burst_size(burst)
         .key_extractor(RobustIpKeyExtractor)
-        .error_handler(|e| {
-            // Output debugging information
-            warn!("Rate limit exceeded: {e}");
-            // Increment rate limit error metrics
-            counter!("surrealmcp.total_errors").increment(1);
-            counter!("surrealmcp.total_rate_limit_errors").increment(1);
-            // Return the error response
-            Response::builder()
-                .status(StatusCode::TOO_MANY_REQUESTS)
-                .body("Rate limit exceeded".into())
-                .unwrap()
-        })
         .finish()
         .expect("Failed to create rate limit configuration");
-    // Return the rate limit layer
-    GovernorLayer::<RobustIpKeyExtractor, NoOpMiddleware> {
-        config: Arc::new(config),
-    }
+    // Return the rate limit layer with error handler
+    GovernorLayer::new(config).error_handler(|e| {
+        // Output debugging information
+        warn!("Rate limit exceeded: {e}");
+        // Increment rate limit error metrics
+        counter!("surrealmcp.total_errors").increment(1);
+        counter!("surrealmcp.total_rate_limit_errors").increment(1);
+        // Return the error response
+        Response::builder()
+            .status(StatusCode::TOO_MANY_REQUESTS)
+            .body("Rate limit exceeded".into())
+            .unwrap()
+    })
 }
