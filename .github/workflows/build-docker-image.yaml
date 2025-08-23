@@ -154,10 +154,20 @@ jobs:
           echo "AMD64 Digest: $AMD64_DIGEST"
           echo "ARM64 Digest: $ARM64_DIGEST"
 
+          # Create the main tag
           docker buildx imagetools create \
             --tag ${{ env.IMAGE_NAME }}:${{ needs.build.outputs.tag }} \
             ${{ env.IMAGE_NAME }}@$AMD64_DIGEST \
             ${{ env.IMAGE_NAME }}@$ARM64_DIGEST
+
+          # If this is a Git tag, also create the 'latest' tag
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "Creating 'latest' tag for Git tag: ${{ needs.build.outputs.tag }}"
+            docker buildx imagetools create \
+              --tag ${{ env.IMAGE_NAME }}:latest \
+              ${{ env.IMAGE_NAME }}@$AMD64_DIGEST \
+              ${{ env.IMAGE_NAME }}@$ARM64_DIGEST
+          fi
 
       - name: Summary
         run: |
@@ -166,12 +176,24 @@ jobs:
           echo "- **Tag:** ${{ needs.build.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** ${{ env.IMAGE_NAME }}:${{ needs.build.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          
+          # Add latest tag info if this is a Git tag
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "- **Latest Tag:** ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          fi
+          
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Architecture-specific Images" >> $GITHUB_STEP_SUMMARY
           echo "- AMD64: \`${{ env.IMAGE_NAME }}:${{ needs.build.outputs.tag }}-amd64\`" >> $GITHUB_STEP_SUMMARY
           echo "- ARM64: \`${{ env.IMAGE_NAME }}:${{ needs.build.outputs.tag }}-arm64\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Pull Command" >> $GITHUB_STEP_SUMMARY
+          echo "### Pull Commands" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.IMAGE_NAME }}:${{ needs.build.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          
+          # Add latest tag pull command if this is a Git tag
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "docker pull ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          fi
+          
           echo '```' >> $GITHUB_STEP_SUMMARY

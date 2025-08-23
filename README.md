@@ -756,4 +756,4 @@ docker run -p 8000:8000 surrealmcp start --bind-address 0.0.0.0:8000
 
 ## License
 
-This project is licensed under the Apache 2.0 License.
+This project is licensed under the [Business Source License](LICENSE).
