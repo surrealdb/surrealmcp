@@ -497,7 +497,7 @@ SurrealMCP can be integrated with various AI coding tools and assistants to enab
    ```
    </details>
 
-5. **Verify installation:**
+4. **Verify installation:**
    - Open the Zed assistant panel
    - You should see SurrealDB tools available in the tools list
 
