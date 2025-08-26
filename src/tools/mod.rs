@@ -53,7 +53,7 @@ pub struct QueryParams {
     #[schemars(description = "The SurrealQL query string")]
     pub query: String,
     #[schemars(description = "Optional parameters to bind to the query")]
-    pub parameters: Option<HashMap<String, serde_json::Value>>,
+    pub parameters: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -73,7 +73,7 @@ pub struct SelectParams {
     #[schemars(description = "Optional START clause to specify the pagination start position.")]
     pub start_clause: Option<String>,
     #[schemars(description = "Optional parameters to bind to the query.")]
-    pub parameters: Option<HashMap<String, serde_json::Value>>,
+    pub parameters: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -101,7 +101,7 @@ pub struct UpsertParams {
     #[schemars(description = "Array of table names or record IDs to upsert.")]
     pub targets: Vec<String>,
     #[schemars(description = "The JSON patch operations to apply to the record or records.")]
-    pub patch_data: Option<Vec<serde_json::Value>>,
+    pub patch_data: Option<Vec<serde_json::Map<String, serde_json::Value>>>,
     #[schemars(description = "The JSON data to combine with the existing record or records.")]
     pub merge_data: Option<serde_json::Map<String, serde_json::Value>>,
     #[schemars(description = "The JSON data to apply to the record or records.")]
@@ -111,7 +111,7 @@ pub struct UpsertParams {
     #[schemars(description = "Optional WHERE clause to filter records before upserting.")]
     pub where_clause: Option<String>,
     #[schemars(description = "Optional parameters to bind to the query.")]
-    pub parameters: Option<HashMap<String, serde_json::Value>>,
+    pub parameters: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -119,7 +119,7 @@ pub struct UpdateParams {
     #[schemars(description = "Array of table names or record IDs to update.")]
     pub targets: Vec<String>,
     #[schemars(description = "The JSON patch operations to apply to the record or records.")]
-    pub patch_data: Option<Vec<serde_json::Value>>,
+    pub patch_data: Option<Vec<serde_json::Map<String, serde_json::Value>>>,
     #[schemars(description = "The JSON data to combine with the existing record or records.")]
     pub merge_data: Option<serde_json::Map<String, serde_json::Value>>,
     #[schemars(description = "The JSON data to apply to the record or records.")]
@@ -129,7 +129,7 @@ pub struct UpdateParams {
     #[schemars(description = "Optional WHERE clause to filter records before upserting.")]
     pub where_clause: Option<String>,
     #[schemars(description = "Optional parameters to bind to the query.")]
-    pub parameters: Option<HashMap<String, serde_json::Value>>,
+    pub parameters: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -139,7 +139,7 @@ pub struct DeleteParams {
     #[schemars(description = "Optional WHERE clause to filter records before deletion.")]
     pub where_clause: Option<String>,
     #[schemars(description = "Optional parameters to bind to the query.")]
-    pub parameters: Option<HashMap<String, serde_json::Value>>,
+    pub parameters: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -153,7 +153,7 @@ pub struct RelateParams {
     #[schemars(description = "The target record ID in 'table:id' format.")]
     pub to_id: String,
     #[schemars(description = "Optional JSON data to store on the relationship edge.")]
-    pub content: Option<HashMap<String, serde_json::Value>>,
+    pub content: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
