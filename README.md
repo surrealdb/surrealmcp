@@ -64,6 +64,7 @@ SurrealMCP can be integrated with various AI coding tools and assistants to enab
 - **Using [GitHub Copilot](https://github.com/copilot) in VS Code?** → [View the Copilot installation instructions](#copilot-installation)
 - **Using [Roo Code](https://roocode.com) in VS Code?** → [View the Roo Code installation instructions](#roo-code-installation)
 - **Using [Windsurf](https://windsurf.com)?** → [View the Windsurf installation instructions](#windsurf-installation)
+- **Using [Zed](https://zed.dev)?** → [View the Zed installation instructions](#zed-installation)
 - **Using [n8n](https://n8n.io)?** → [View the n8n integration instructions](#integration-with-n8n)
 
 ### Key Terms
@@ -446,6 +447,58 @@ SurrealMCP can be integrated with various AI coding tools and assistants to enab
 
 4. **Verify installation:**
    - Open Cascade in Windsurf
+   - You should see SurrealDB tools available in the tools list
+
+<!-- -------------------------------------------------- -->
+<!-- Zed -->
+<!-- -------------------------------------------------- -->
+
+### Zed installation
+
+#### Installation for Zed
+
+1. **Install SurrealMCP:**
+   ```bash
+   cargo install --path .
+   ```
+
+2. **Configure Zed:**
+   - Open Zed
+   - Command Palette > Zed Settings
+
+3. **Add the SurrealMCP configuration:**
+   Under the `context_servers` key, add a new entry:
+   ```json
+   "surreal": {
+      "source": "custom",
+      "command": "surrealmcp",
+      "args": ["start"],
+      "enabled": true,
+    }
+   ```
+
+   <details>
+   <summary>Configuration with environment variables</summary>
+
+   ```json
+   "surreal": {
+      "source": "custom",
+      "command": "surrealmcp",
+      "args": ["start"],
+      "enabled": true,
+      "env": {
+        "SURREALDB_URL": "ws://localhost:8000/rpc",
+        "SURREALDB_NS": "myapp",
+        "SURREALDB_DB": "production",
+        "SURREALDB_USER": "admin",
+        "SURREALDB_PASS": "password123"
+      }
+    }
+   ```
+   </details>
+
+4. **Verify installation:**
+   - Open the Zed assistant panel
    - You should see SurrealDB tools available in the tools list
 
 <!-- -------------------------------------------------- -->
