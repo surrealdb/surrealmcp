@@ -98,14 +98,9 @@ COPY --from=tzdata /usr/share/zoneinfo /usr/share/zoneinfo
 
 COPY --from=tzdata /usr/share/zoneinfo/UTC /etc/localtime
 
-USER 65532
+COPY --from=dev /data /data
 
-RUN mkdir /data /logs \
-	&& chown -R nonroot:nonroot /data \
-	&& chmod -R 777 /data \
-	&& chown -R nonroot:nonroot /logs \
-	&& chmod -R 777 /logs \
-	&& echo "OK"
+COPY --from=dev /logs /logs
 
 VOLUME /data /logs
 
