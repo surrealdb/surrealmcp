@@ -153,7 +153,7 @@ pub struct RelateParams {
     #[schemars(description = "The target record ID in 'table:id' format.")]
     pub to_id: String,
     #[schemars(description = "Optional JSON data to store on the relationship edge.")]
-    pub content: Option<serde_json::Value>,
+    pub content: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -902,18 +902,37 @@ Examples:
             "Creating relationship: {} -> {} -> {}",
             from_id, relationship_type, to_id
         );
-        let query = match content {
+        match content {
             Some(content_data) => {
-                format!("RELATE {from_id}->{relationship_type}->{to_id} CONTENT {content_data}")
+                let mut converted = HashMap::new();
+                for (key, val) in content_data {
+                    let val = convert_json_to_surreal(val, &key)
+                        .map_err(|e| McpError::internal_error(e, None))?;
+                    converted.insert(key, val);
+                }
+                let query =
+                    format!("RELATE {from_id}->{relationship_type}->{to_id} CONTENT $content");
+                let mut params = HashMap::<String, serde_json::Value>::new();
+                params.insert(
+                    "content".to_string(),
+                    serde_json::to_value(converted)
+                        .map_err(|e| McpError::internal_error(format!("{}", e), None))?,
+                );
+                self.query(Parameters(QueryParams {
+                    query,
+                    parameters: Some(params),
+                }))
+                .await
             }
-            None => format!("RELATE {from_id}->{relationship_type}->{to_id}"),
-        };
-
-        self.query(Parameters(QueryParams {
-            query,
-            parameters: None,
-        }))
-        .await
+            None => {
+                let query = format!("RELATE {from_id}->{relationship_type}->{to_id}");
+                self.query(Parameters(QueryParams {
+                    query,
+                    parameters: None,
+                }))
+                .await
+            }
+        }
     }
 
     #[tool(description = "List SurrealDB Cloud organizations")]
