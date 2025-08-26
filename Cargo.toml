@@ -20,7 +20,7 @@ reqwest = { version = "0.12.23", default-features = false, features = [
     "rustls-tls",
 ] }
 ring = "0.17.14"
-rmcp = { version = "0.5.0", features = [
+rmcp = { version = "0.6.0", features = [
     "server",
     "macros",
     "transport-streamable-http-server",
