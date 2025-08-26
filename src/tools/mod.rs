@@ -144,16 +144,16 @@ pub struct DeleteParams {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct RelateParams {
-    #[schemars(description = "The source record ID in 'table:id' format.")]
-    pub from_id: String,
-    #[schemars(
-        description = "The type of relationship that describes the connection between records."
-    )]
-    pub relationship_type: String,
-    #[schemars(description = "The target record ID in 'table:id' format.")]
-    pub to_id: String,
-    #[schemars(description = "Optional JSON data to store on the relationship edge.")]
-    pub content: Option<serde_json::Map<String, serde_json::Value>>,
+    #[schemars(description = "Array of table names or record IDs to relate.")]
+    pub from: Vec<String>,
+    #[schemars(description = "Array of table names or record IDs to relate.")]
+    pub with: Vec<String>,
+    #[schemars(description = "The table name of the relationship to create.")]
+    pub table: String,
+    #[schemars(description = "The JSON data to apply to the record or records.")]
+    pub content_data: Option<serde_json::Map<String, serde_json::Value>>,
+    #[schemars(description = "Optional parameters to bind to the query.")]
+    pub parameters: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -880,59 +880,61 @@ This is essential for graph operations and modeling complex relationships like s
 networks, content authorship, ownership, etc.
 
 Examples:
-- relate('person:john', 'wrote', 'article:surreal_guide', None)
-- relate('person:john', 'knows', 'person:jane', {"since": "2020-01-01", "strength": "close"})
-- relate('company:acme', 'employs', 'person:john', {"role": "developer", "start_date": "2023-01-01"})
-- relate('user:alice', 'likes', 'post:123', {"timestamp": "2024-01-15T10:30:00Z"})
+- relate(['person:john'], 'wrote', ['article:surreal_guide'], None) # Relates person:john to article:surreal_guide, with no edge record data
+- relate(['person:john', 'person:jill'], 'knows', ['person:jane'], {"since": "2020-01-01", "strength": "close"}) # Relates multiple records to a single record, with some edge record data
+- relate(['company:acme'], 'employs', ['person:john'], {"role": "developer", "start_date": "2023-01-01"}) # Relates company:acme to person:john with an employment role and start date
+- relate(['user:alice'], 'likes', ['post:123', 'post:456'], {"timestamp": "2024-01-15T10:30:00Z"}) # Relates a single user record to multiple post records, with a timestamp
 "#)]
     pub async fn relate(
         &self,
         params: Parameters<RelateParams>,
     ) -> Result<CallToolResult, McpError> {
         let RelateParams {
-            from_id,
-            relationship_type,
-            to_id,
-            content,
+            from,
+            with,
+            table,
+            content_data,
+            parameters,
         } = params.0;
         // Increment tool usage counter
         counter!("surrealmcp.tools.relate").increment(1);
         // Output debugging information
-        debug!(
-            "Creating relationship: {} -> {} -> {}",
-            from_id, relationship_type, to_id
-        );
-        match content {
-            Some(content_data) => {
-                let mut converted = HashMap::new();
-                for (key, val) in content_data {
-                    let val = convert_json_to_surreal(val, &key)
-                        .map_err(|e| McpError::internal_error(e, None))?;
-                    converted.insert(key, val);
-                }
-                let query =
-                    format!("RELATE {from_id}->{relationship_type}->{to_id} CONTENT $content");
-                let mut params = HashMap::<String, serde_json::Value>::new();
-                params.insert(
-                    "content".to_string(),
-                    serde_json::to_value(converted)
-                        .map_err(|e| McpError::internal_error(format!("{}", e), None))?,
-                );
-                self.query(Parameters(QueryParams {
-                    query,
-                    parameters: Some(params),
-                }))
-                .await
-            }
-            None => {
-                let query = format!("RELATE {from_id}->{relationship_type}->{to_id}");
-                self.query(Parameters(QueryParams {
-                    query,
-                    parameters: None,
-                }))
-                .await
+        debug!(from = ?from, with = ?with, table= ?table, "Relating records");
+        // Create parameters with native SurrealDB types
+        let mut params = HashMap::new();
+        // Build the initial query string
+        let mut query = "RELATE ".to_string();
+        // Process the tables and Record IDs
+        query.push_str(&format!(
+            "[{}]->{}->[{}]",
+            parse_targets(from).map_err(|e| McpError::internal_error(e, None))?,
+            table,
+            parse_targets(with).map_err(|e| McpError::internal_error(e, None))?
+        ));
+        // Add the data content clause
+        if let Some(v) = content_data {
+            query.push_str(" CONTENT $data");
+            // Add the data input as a parameter
+            params.insert(
+                "data".to_string(),
+                convert_json_to_surreal(v, "data")
+                    .map_err(|e| McpError::internal_error(e, None))?,
+            );
+        }
+        // Add user-provided parameters if any
+        if let Some(variables) = parameters {
+            for (key, val) in variables {
+                let val = convert_json_to_surreal(val, &key)
+                    .map_err(|e| McpError::internal_error(e, None))?;
+                params.insert(key, val);
             }
         }
+        // Output debugging information
+        trace!("Relating records with query: {query}");
+        // Execute the final query
+        self.query_internal(query, Some(params))
+            .await?
+            .to_mcp_result()
     }
 
     #[tool(description = "List SurrealDB Cloud organizations")]
