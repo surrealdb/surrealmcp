@@ -13,7 +13,7 @@
 <p align="center">
     <a href="https://github.com/surrealdb/surrealmcp"><img src="https://img.shields.io/badge/status-preview-ff00bb.svg?style=flat-square"></a>
     &nbsp;
-    <a href="https://github.com/surrealdb/surrealdb"><img src="https://img.shields.io/github/v/release/surrealdb/surrealmcp?color=9600FF&include_prereleases&label=version&sort=semver&style=flat-square"></a>
+    <a href="https://github.com/surrealdb/surrealmcp"><img src="https://img.shields.io/github/v/release/surrealdb/surrealmcp?color=9600FF&include_prereleases&label=version&sort=semver&style=flat-square"></a>
     &nbsp;
     <a href="https://surrealdb.com/docs/integrations/data-management/n8n"><img src="https://img.shields.io/badge/docs-view-44cc11.svg?style=flat-square"></a>
     &nbsp;
