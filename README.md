@@ -98,8 +98,15 @@ SurrealMCP can be integrated with various AI coding tools and assistants to enab
    ```json
    {
      "name": "SurrealDB",
-     "command": "surrealmcp",
-     "args": ["start"]
+     "command": "docker",
+     "args": [
+       "run",
+       "--rm",
+       "-i",
+       "--pull", "always",
+       "surrealdb/surrealmcp:latest",
+       "start"
+     ]
    }
    ```
 
@@ -147,8 +154,15 @@ SurrealMCP can be integrated with various AI coding tools and assistants to enab
    {
      "mcpServers": {
        "SurrealDB": {
-         "command": "surrealmcp",
-         "args": ["start"],
+         "command": "docker",
+         "args": [
+           "run",
+           "--rm",
+           "-i",
+           "--pull", "always",
+           "surrealdb/surrealmcp:latest",
+           "start"
+         ],
          "disabled": false,
          "autoApprove": []
        }
@@ -209,8 +223,15 @@ SurrealMCP can be integrated with various AI coding tools and assistants to enab
    {
      "mcpServers": {
        "SurrealDB": {
-         "command": "surrealmcp",
-         "args": ["start"],
+         "command": "docker",
+         "args": [
+           "run",
+           "--rm",
+           "-i",
+           "--pull", "always",
+           "surrealdb/surrealmcp:latest",
+           "start"
+         ],
          "disabled": false,
          "autoApprove": []
        }
@@ -268,8 +289,15 @@ SurrealMCP can be integrated with various AI coding tools and assistants to enab
      "servers": {
        "SurrealDB": {
          "type": "stdio",
-         "command": "surrealmcp",
-         "args": ["start"]
+         "command": "docker",
+         "args": [
+           "run",
+           "--rm",
+           "-i",
+           "--pull", "always",
+           "surrealdb/surrealmcp:latest",
+           "start"
+         ]
        }
      }
    }
@@ -354,8 +382,15 @@ SurrealMCP can be integrated with various AI coding tools and assistants to enab
    {
      "mcpServers": {
        "SurrealDB": {
-         "command": "surrealmcp",
-         "args": ["start"],
+         "command": "docker",
+         "args": [
+           "run",
+           "--rm",
+           "-i",
+           "--pull", "always",
+           "surrealdb/surrealmcp:latest",
+           "start"
+         ],
          "disabled": false,
          "autoApprove": []
        }
@@ -417,8 +452,15 @@ SurrealMCP can be integrated with various AI coding tools and assistants to enab
      "servers": [
        {
          "name": "SurrealDB",
-         "command": "surrealmcp",
-         "args": ["start"]
+         "command": "docker",
+         "args": [
+           "run",
+           "--rm",
+           "-i",
+           "--pull", "always",
+           "surrealdb/surrealmcp:latest",
+           "start"
+         ]
        }
      ]
    }
@@ -472,8 +514,15 @@ SurrealMCP can be integrated with various AI coding tools and assistants to enab
    ```json
    "surreal": {
       "source": "custom",
-      "command": "surrealmcp",
-      "args": ["start"],
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--pull", "always",
+        "surrealdb/surrealmcp:latest",
+        "start"
+      ],
       "enabled": true,
     }
    ```
@@ -529,6 +578,7 @@ To use SurrealMCP without installing `cargo` you can use Docker. SurrealMCP runs
         "run",
         "--rm",
         "-i",
+        "--pull", "always",
         "surrealdb/surrealmcp:latest",
         "start"
       ]
@@ -550,6 +600,7 @@ To use SurrealMCP without installing `cargo` you can use Docker. SurrealMCP can 
         "run",
         "--rm",
         "-p", "8080:8080",
+        "--pull", "always",
         "surrealdb/surrealmcp:latest",
         "start",
         "--bind-address", "127.0.0.1:8080",
