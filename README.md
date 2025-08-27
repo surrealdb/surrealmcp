@@ -46,8 +46,16 @@ SurrealMCP is the official Model Context Protocol ([MCP](https://modelcontextpro
 
 ## Installation
 
+#### Building from source
+
 ```bash
 cargo install --path .
+```
+
+#### Deploying with Docker
+
+```bash
+docker run --rm -i --pull always surrealdb/surrealmcp:latest start
 ```
 
 <!-- -------------------------------------------------- -->
@@ -84,9 +92,8 @@ SurrealMCP can be integrated with various AI coding tools and assistants to enab
 #### Installation for Cursor
 
 1. **Install SurrealMCP:**
-   ```bash
-   cargo install --path .
-   ```
+  - [Build and install from source](#installation)
+  - [Configure with Docker](#deployment-with-docker)
 
 2. **Configure Cursor:**
    - Open Cursor
