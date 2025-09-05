@@ -46,4 +46,4 @@ tower-http = { version = "0.6.6", features = ["trace", "cors"] }
 tower_governor = "0.8.0"
 tracing = "0.1.41"
 tracing-appender = "0.2.3"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
