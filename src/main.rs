@@ -15,6 +15,13 @@ mod utils;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    if rustls::crypto::ring::default_provider()
+        .install_default()
+        .is_err()
+    {
+        tracing::error!("Failed to install default crypto provider");
+    }
+
     // Parse command line arguments
     let cli = cli::Cli::parse();
     // Run the specified command
