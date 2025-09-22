@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-anyhow = "1.0.99"
+anyhow = "1.0.100"
 axum = "0.8.4"
 axum-extra = { version = "0.10.1", features = ["typed-header"] }
 base64 = "0.22.1"
