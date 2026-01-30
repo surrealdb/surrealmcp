@@ -26,6 +26,9 @@ pub trait ResourceProvider {
             name: self.name().to_string(),
             mime_type: Some(self.mime_type().to_string()),
             description: Some(self.description().to_string()),
+            icons: None,
+            meta: Default::default(),
+            title: None,
         };
         Annotated::new(raw, None)
     }
