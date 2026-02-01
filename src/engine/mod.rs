@@ -20,6 +20,8 @@ pub struct Response {
     pub error: Option<String>,
     /// The result of the query as a formatted string
     pub result: Option<surrealdb::Response>,
+    /// Whether this error requires reconnection (e.g., token expired)
+    pub requires_reconnect: bool,
 }
 
 impl Response {
@@ -101,31 +103,60 @@ pub async fn execute_query(
                 error: None,
                 duration,
                 query_id,
+                requires_reconnect: false,
             }
         }
         Err(e) => {
             // Get the duration of the query
             let duration = start_time.elapsed();
+            let error_str = e.to_string();
+            // Check if this is a token expiration error that requires reconnection
+            let requires_reconnect = is_reconnectable_error(&error_str);
             // Output debugging information
             error!(
                 connection_id = %connection_id,
                 query_id,
                 query = %query_string,
                 duration_ms = duration.as_millis(),
-                error = %e,
+                error = %error_str,
+                requires_reconnect,
                 "Query execution failed"
             );
             // Update query metrics
             counter!("surrealmcp.total_query_errors").increment(1);
             histogram!("surrealmcp.query_duration_ms").record(duration.as_millis() as f64);
+            if requires_reconnect {
+                counter!("surrealmcp.reconnectable_errors").increment(1);
+            }
             // Return the response
             Response {
                 query: query_string,
                 result: None,
-                error: Some(e.to_string()),
+                error: Some(error_str),
                 duration,
                 query_id,
+                requires_reconnect,
             }
         }
     }
+}
+
+/// Check if an error message indicates a reconnectable condition
+/// (token expired, connection lost, etc.)
+fn is_reconnectable_error(error: &str) -> bool {
+    let error_lower = error.to_lowercase();
+    // Token/session expiry errors
+    error_lower.contains("token has expired")
+        || error_lower.contains("token expired")
+        || error_lower.contains("session expired")
+        || error_lower.contains("invalid session")
+        // Connection errors (reconnectable)
+        || error_lower.contains("connection reset")
+        || error_lower.contains("connection refused")
+        || error_lower.contains("connection closed")
+        || error_lower.contains("broken pipe")
+        // Auth errors that indicate token issues (not bad credentials)
+        || error_lower.contains("not authenticated")
+        || error_lower.contains("unauthenticated")
+        || (error_lower.contains("authentication") && error_lower.contains("expired"))
 }

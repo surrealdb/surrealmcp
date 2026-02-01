@@ -1897,11 +1897,61 @@ This is useful when you want to:
                 let res = engine::execute_query(
                     db,
                     query_id,
-                    query_string,
-                    parameters,
+                    query_string.clone(),
+                    parameters.clone(),
                     &self.connection_id,
                 )
                 .await;
+
+                // Check if we need to reconnect (token expired, connection lost, etc.)
+                if res.requires_reconnect {
+                    info!(
+                        connection_id = %self.connection_id,
+                        query_id,
+                        "Token expired or connection lost, attempting automatic reconnection"
+                    );
+                    // Drop the guard to allow reconnection
+                    drop(db_guard);
+
+                    // Attempt to reconnect
+                    if let Err(e) = self.initialize_connection().await {
+                        error!(
+                            connection_id = %self.connection_id,
+                            error = %e,
+                            "Failed to reconnect after token expiration"
+                        );
+                        counter!("surrealmcp.reconnection_failures").increment(1);
+                        return Ok(res); // Return original error
+                    }
+
+                    counter!("surrealmcp.reconnection_successes").increment(1);
+                    info!(
+                        connection_id = %self.connection_id,
+                        "Successfully reconnected, retrying query"
+                    );
+
+                    // Retry the query with fresh connection
+                    let db_guard = self.db.lock().await;
+                    if let Some(db) = &*db_guard {
+                        let retry_id = QUERY_COUNTER.fetch_add(1, Ordering::SeqCst);
+                        return Ok(engine::execute_query(
+                            db,
+                            retry_id,
+                            query_string,
+                            parameters,
+                            &self.connection_id,
+                        )
+                        .await);
+                    } else {
+                        // Database connection failed after reconnect attempt
+                        error!(
+                            connection_id = %self.connection_id,
+                            "Database unavailable after successful reconnection"
+                        );
+                        return Ok(res); // Return original error
+                    }
+                }
+
                 // Return the response
                 Ok(res)
             }
