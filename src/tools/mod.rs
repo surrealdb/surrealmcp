@@ -1942,6 +1942,13 @@ This is useful when you want to:
                             &self.connection_id,
                         )
                         .await);
+                    } else {
+                        // Database connection failed after reconnect attempt
+                        error!(
+                            connection_id = %self.connection_id,
+                            "Database unavailable after successful reconnection"
+                        );
+                        return Ok(res); // Return original error
                     }
                 }
 

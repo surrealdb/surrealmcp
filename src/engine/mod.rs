@@ -126,7 +126,7 @@ pub async fn execute_query(
             counter!("surrealmcp.total_query_errors").increment(1);
             histogram!("surrealmcp.query_duration_ms").record(duration.as_millis() as f64);
             if requires_reconnect {
-                counter!("surrealmcp.token_expiry_errors").increment(1);
+                counter!("surrealmcp.reconnectable_errors").increment(1);
             }
             // Return the response
             Response {
@@ -145,10 +145,18 @@ pub async fn execute_query(
 /// (token expired, connection lost, etc.)
 fn is_reconnectable_error(error: &str) -> bool {
     let error_lower = error.to_lowercase();
+    // Token/session expiry errors
     error_lower.contains("token has expired")
         || error_lower.contains("token expired")
-        || error_lower.contains("authentication failed")
+        || error_lower.contains("session expired")
+        || error_lower.contains("invalid session")
+        // Connection errors (reconnectable)
         || error_lower.contains("connection reset")
         || error_lower.contains("connection refused")
+        || error_lower.contains("connection closed")
         || error_lower.contains("broken pipe")
+        // Auth errors that indicate token issues (not bad credentials)
+        || error_lower.contains("not authenticated")
+        || error_lower.contains("unauthenticated")
+        || (error_lower.contains("authentication") && error_lower.contains("expired"))
 }
