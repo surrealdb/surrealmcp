@@ -43,16 +43,19 @@ impl PromptGenerator for DatabaseQueryAssistant {
                     "The type of query (SELECT, CREATE, UPDATE, DELETE, etc.)".to_string(),
                 ),
                 required: Some(true),
+                title: None,
             },
             PromptArgument {
                 name: "table_name".to_string(),
                 description: Some("The table name to query".to_string()),
                 required: Some(false),
+                title: None,
             },
             PromptArgument {
                 name: "requirements".to_string(),
                 description: Some("Specific requirements or constraints for the query".to_string()),
                 required: Some(false),
+                title: None,
             },
         ]
     }
@@ -118,16 +121,19 @@ impl PromptGenerator for DataModelingExpert {
                 name: "use_case".to_string(),
                 description: Some("The use case or application domain (e.g., social network, e-commerce, analytics)".to_string()),
                 required: Some(true),
+                title: None,
             },
             PromptArgument {
                 name: "data_types".to_string(),
                 description: Some("The types of data to be stored (users, posts, transactions, etc.)".to_string()),
                 required: Some(false),
+                title: None,
             },
             PromptArgument {
                 name: "scale_requirements".to_string(),
                 description: Some("Scale requirements (small, medium, large, enterprise)".to_string()),
                 required: Some(false),
+                title: None,
             },
         ]
     }
@@ -189,6 +195,7 @@ impl PromptGenerator for SurrealQlGuide {
                     "Brief description of what you need to do in SurrealQL".to_string(),
                 ),
                 required: Some(false),
+                title: None,
             },
             PromptArgument {
                 name: "schema".to_string(),
@@ -196,6 +203,7 @@ impl PromptGenerator for SurrealQlGuide {
                     "Optional schema or table context relevant to the task".to_string(),
                 ),
                 required: Some(false),
+                title: None,
             },
         ]
     }
@@ -284,6 +292,9 @@ pub fn list_prompts() -> Vec<Prompt> {
             name: generator.name().to_string(),
             description: Some(generator.description().to_string()),
             arguments: Some(generator.arguments()),
+            icons: None,
+            meta: Default::default(),
+            title: None,
         })
         .collect()
 }

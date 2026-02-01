@@ -4,7 +4,7 @@ use metrics::counter;
 use rmcp::{
     ErrorData as McpError, RoleServer, ServerHandler,
     handler::server::router::tool::ToolRouter,
-    handler::server::tool::Parameters,
+    handler::server::wrapper::Parameters,
     model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
     service::RequestContext,
     tool, tool_handler, tool_router,
@@ -1894,14 +1894,66 @@ This is useful when you want to:
         match &*db_guard {
             Some(db) => {
                 // Execute the query on the engine
+                // Note: We pass clones because execute_query takes ownership,
+                // and we may need to retry on reconnectable errors
                 let res = engine::execute_query(
                     db,
                     query_id,
-                    query_string,
-                    parameters,
+                    query_string.clone(),
+                    parameters.clone(),
                     &self.connection_id,
                 )
                 .await;
+
+                // Check if we need to reconnect (token expired, connection lost, etc.)
+                if res.requires_reconnect {
+                    info!(
+                        connection_id = %self.connection_id,
+                        query_id,
+                        "Token expired or connection lost, attempting automatic reconnection"
+                    );
+                    // Drop the guard to allow reconnection
+                    drop(db_guard);
+
+                    // Attempt to reconnect
+                    if let Err(e) = self.initialize_connection().await {
+                        error!(
+                            connection_id = %self.connection_id,
+                            error = %e,
+                            "Failed to reconnect after token expiration"
+                        );
+                        counter!("surrealmcp.reconnection_failures").increment(1);
+                        return Ok(res); // Return original error
+                    }
+
+                    counter!("surrealmcp.reconnection_successes").increment(1);
+                    info!(
+                        connection_id = %self.connection_id,
+                        "Successfully reconnected, retrying query"
+                    );
+
+                    // Retry the query with fresh connection
+                    let db_guard = self.db.lock().await;
+                    if let Some(db) = &*db_guard {
+                        let retry_id = QUERY_COUNTER.fetch_add(1, Ordering::SeqCst);
+                        return Ok(engine::execute_query(
+                            db,
+                            retry_id,
+                            query_string,
+                            parameters,
+                            &self.connection_id,
+                        )
+                        .await);
+                    } else {
+                        // Database connection failed after reconnect attempt
+                        error!(
+                            connection_id = %self.connection_id,
+                            "Database unavailable after successful reconnection"
+                        );
+                        return Ok(res); // Return original error
+                    }
+                }
+
                 // Return the response
                 Ok(res)
             }
@@ -2008,7 +2060,7 @@ impl ServerHandler for SurrealService {
     /// Initialize the MCP server
     async fn initialize(
         &self,
-        _req: rmcp::model::InitializeRequestParam,
+        _req: rmcp::model::InitializeRequestParams,
         ctx: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::InitializeResult, McpError> {
         // Output debugging information
@@ -2037,7 +2089,7 @@ impl ServerHandler for SurrealService {
     /// List the MCP server prompts
     async fn list_prompts(
         &self,
-        _req: Option<rmcp::model::PaginatedRequestParam>,
+        _req: Option<rmcp::model::PaginatedRequestParams>,
         _ctx: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ListPromptsResult, McpError> {
         // Output debugging information
@@ -2048,13 +2100,14 @@ impl ServerHandler for SurrealService {
         Ok(rmcp::model::ListPromptsResult {
             prompts,
             next_cursor: None,
+            meta: Default::default(),
         })
     }
 
     /// Get an MCP server prompt
     async fn get_prompt(
         &self,
-        req: rmcp::model::GetPromptRequestParam,
+        req: rmcp::model::GetPromptRequestParams,
         _ctx: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::GetPromptResult, McpError> {
         // Output debugging information
@@ -2075,7 +2128,7 @@ impl ServerHandler for SurrealService {
     /// List the MCP server resources
     async fn list_resources(
         &self,
-        _req: Option<rmcp::model::PaginatedRequestParam>,
+        _req: Option<rmcp::model::PaginatedRequestParams>,
         _ctx: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ListResourcesResult, McpError> {
         // Output debugging information
@@ -2086,13 +2139,14 @@ impl ServerHandler for SurrealService {
         Ok(rmcp::model::ListResourcesResult {
             resources,
             next_cursor: None,
+            meta: Default::default(),
         })
     }
 
     /// Get an MCP server resource
     async fn read_resource(
         &self,
-        req: rmcp::model::ReadResourceRequestParam,
+        req: rmcp::model::ReadResourceRequestParams,
         _ctx: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ReadResourceResult, McpError> {
         // Output debugging information
