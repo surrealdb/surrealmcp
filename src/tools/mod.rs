@@ -1894,6 +1894,8 @@ This is useful when you want to:
         match &*db_guard {
             Some(db) => {
                 // Execute the query on the engine
+                // Note: We pass clones because execute_query takes ownership,
+                // and we may need to retry on reconnectable errors
                 let res = engine::execute_query(
                     db,
                     query_id,
@@ -1942,6 +1944,13 @@ This is useful when you want to:
                             &self.connection_id,
                         )
                         .await);
+                    } else {
+                        // Database connection failed after reconnect attempt
+                        error!(
+                            connection_id = %self.connection_id,
+                            "Database unavailable after successful reconnection"
+                        );
+                        return Ok(res); // Return original error
                     }
                 }
 
