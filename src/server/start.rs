@@ -11,7 +11,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::fs;
-use tokio::net::{TcpListener, UnixListener};
+use tokio::net::TcpListener;
+#[cfg(unix)]
+use tokio::net::UnixListener;
 use tokio::signal;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{debug, error, info, warn};
@@ -98,9 +100,10 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
         // We are running as a HTTP server
         (true, false) => start_http_server(config).await,
         // We are running as a Unix socket
+        #[cfg(unix)]
         (false, true) => start_unix_server(config).await,
         // This should never happen due to CLI argument groups
-        (true, true) => Err(anyhow!(
+        _ => Err(anyhow!(
             "Cannot specify both --bind-address and --socket-path"
         )),
     }
@@ -172,6 +175,7 @@ async fn start_stdio_server(config: ServerConfig) -> Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
 /// Start the MCP server in Unix socket mode
 async fn start_unix_server(config: ServerConfig) -> Result<()> {
     // Extract configuration values
