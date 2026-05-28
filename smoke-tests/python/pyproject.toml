@@ -1,0 +1,14 @@
+[project]
+name = "surrealmcp-smoke-tests"
+version = "0.1.0"
+description = "Python smoke tests for SurrealMCP using the MCP Python SDK"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "mcp>=1.27.1",
+  "pytest>=9.0.3",
+  "python-dotenv>=1.2.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
