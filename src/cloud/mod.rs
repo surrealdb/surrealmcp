@@ -13,6 +13,9 @@ pub struct CloudSignInResponse {
 }
 
 /// A user in SurrealDB Cloud
+// Pre-existing dead code, unrelated to the surrealdb-unify pass
+// (`CloudUser` is never constructed; origin/main also fails `clippy -D warnings` here).
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CloudUser {
     pub id: String,

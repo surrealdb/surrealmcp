@@ -249,6 +249,9 @@ struct JweHeader {
 }
 
 /// JWT header structure
+// Pre-existing dead code, unrelated to the surrealdb-unify pass
+// (`JwtHeader` is never constructed; origin/main also fails `clippy -D warnings` here).
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 struct JwtHeader {
     /// The algorithm used to sign the token

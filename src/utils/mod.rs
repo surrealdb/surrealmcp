@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use surrealdb::types::ToSql;
 
 /// Generate a unique connection ID
 pub fn generate_connection_id() -> String {
@@ -60,11 +60,11 @@ pub fn format_duration(duration: std::time::Duration) -> String {
 pub fn convert_json_to_surreal(
     value: impl Into<serde_json::Value>,
     name: &str,
-) -> Result<surrealdb::Value, String> {
+) -> Result<surrealdb::types::Value, String> {
     // Ensure the value is a JSON value
     let json_value = value.into();
     // Convert the JSON value to a SurrealQL Value
-    surrealdb::Value::from_str(&json_value.to_string())
+    surrealdb::parse::value(&json_value.to_string())
         .map_err(|e| format!("Failed to convert parameter '{name}': {e}"))
 }
 
@@ -76,8 +76,8 @@ pub fn convert_json_to_surreal(
 /// # Arguments
 /// * `value` - A vector of strings to parse
 pub fn parse_target(value: String) -> Result<String, String> {
-    match surrealdb::Value::from_str(&value) {
-        Ok(val) => Ok(val.to_string()),
+    match surrealdb::parse::value(&value) {
+        Ok(val) => Ok(val.to_sql()),
         Err(e) => Err(format!("Failed to parse SurrealQL Value {value}: {e}")),
     }
 }
@@ -94,9 +94,9 @@ pub fn parse_targets(values: Vec<String>) -> Result<String, String> {
     let mut items = Vec::new();
     // Iterate over the input values
     for val in values {
-        match surrealdb::Value::from_str(&val) {
+        match surrealdb::parse::value(&val) {
             Ok(val) => {
-                items.push(val.to_string());
+                items.push(val.to_sql());
             }
             Err(e) => {
                 return Err(format!("Failed to parse SurrealQL Value {val}: {e}"));
@@ -119,7 +119,7 @@ mod tests {
         let val = result.unwrap();
         // Convert back to string to verify the content
         println!("val: {val:?}");
-        let val_str = val.to_string();
+        let val_str = val.to_sql();
         assert!(val_str.contains("Alice"));
         assert!(val_str.contains("30"));
         assert!(val_str.contains("true"));
@@ -131,7 +131,7 @@ mod tests {
         let result = convert_json_to_surreal(json_val, "numbers");
         assert!(result.is_ok());
         let val = result.unwrap();
-        let val_str = val.to_string();
+        let val_str = val.to_sql();
         assert!(val_str.contains("1"));
         assert!(val_str.contains("2"));
         assert!(val_str.contains("3"));
@@ -144,7 +144,7 @@ mod tests {
         let result = convert_json_to_surreal(string_val, "table");
         assert!(result.is_ok());
         let val = result.unwrap();
-        assert_eq!(val.to_string(), "'table_name'");
+        assert_eq!(val.to_sql(), "'table_name'");
     }
 
     #[test]
@@ -153,7 +153,7 @@ mod tests {
         let result = convert_json_to_surreal(number_val, "count");
         assert!(result.is_ok());
         let val = result.unwrap();
-        assert_eq!(val.to_string(), "42");
+        assert_eq!(val.to_sql(), "42");
     }
 
     #[test]
@@ -162,7 +162,7 @@ mod tests {
         let result = convert_json_to_surreal(bool_val, "flag");
         assert!(result.is_ok());
         let val = result.unwrap();
-        assert_eq!(val.to_string(), "true");
+        assert_eq!(val.to_sql(), "true");
     }
 
     #[test]
@@ -171,7 +171,7 @@ mod tests {
         let result = convert_json_to_surreal(null_val, "empty");
         assert!(result.is_ok());
         let val = result.unwrap();
-        assert_eq!(val.to_string(), "NULL");
+        assert_eq!(val.to_sql(), "NULL");
     }
 
     #[test]
@@ -180,7 +180,7 @@ mod tests {
         let result = convert_json_to_surreal(json_val, "empty_obj");
         assert!(result.is_ok());
         let val = result.unwrap();
-        assert_eq!(val.to_string(), "{  }");
+        assert_eq!(val.to_sql(), "{  }");
     }
 
     #[test]
@@ -197,7 +197,7 @@ mod tests {
         let result = convert_json_to_surreal(json_val, "nested_data");
         assert!(result.is_ok());
         let val = result.unwrap();
-        let val_str = val.to_string();
+        let val_str = val.to_sql();
         assert!(val_str.contains("Bob"));
         assert!(val_str.contains("123 Main St"));
         assert!(val_str.contains("Anytown"));
@@ -209,7 +209,7 @@ mod tests {
         let result = convert_json_to_surreal(json_val, "empty_arr");
         assert!(result.is_ok());
         let val = result.unwrap();
-        assert_eq!(val.to_string(), "[]");
+        assert_eq!(val.to_sql(), "[]");
     }
 
     #[test]
@@ -218,7 +218,7 @@ mod tests {
         let result = convert_json_to_surreal(json_val, "special");
         assert!(result.is_ok());
         let val = result.unwrap();
-        let val_str = val.to_string();
+        let val_str = val.to_sql();
         assert!(val_str.contains("Hello"));
         assert!(val_str.contains("World"));
     }
@@ -229,7 +229,7 @@ mod tests {
         let result = convert_json_to_surreal(json_val, "unicode");
         assert!(result.is_ok());
         let val = result.unwrap();
-        let val_str = val.to_string();
+        let val_str = val.to_sql();
         assert!(val_str.contains("Hello"));
         assert!(val_str.contains("世界"));
     }
@@ -247,7 +247,7 @@ mod tests {
         let result = convert_json_to_surreal(json_val, "mixed");
         assert!(result.is_ok());
         let val = result.unwrap();
-        let val_str = val.to_string();
+        let val_str = val.to_sql();
         assert!(val_str.contains("hello"));
         assert!(val_str.contains("42"));
         assert!(val_str.contains("false"));
@@ -268,7 +268,7 @@ mod tests {
         // The current implementation might not fail on this input, so let's check if it succeeds
         // and if so, verify the output format instead
         if let Ok(val) = result {
-            let val_str = val.to_string();
+            let val_str = val.to_sql();
             assert_eq!(val_str, "'invalid json {'");
         } else {
             let error = result.unwrap_err();
