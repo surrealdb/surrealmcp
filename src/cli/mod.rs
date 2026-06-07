@@ -13,20 +13,40 @@ pub struct Cli {
 pub enum Commands {
     /// Start the MCP server
     Start {
-        /// The SurrealDB endpoint URL to connect to
-        #[arg(short, long, env = "SURREALDB_URL")]
+        /// The SurrealDB endpoint URL to connect to.
+        ///
+        /// Defaults to the consolidated local instance so the inspector reads
+        /// real portfolio data out of the box. Override with `SURREALDB_URL`.
+        #[arg(
+            short,
+            long,
+            env = "SURREALDB_URL",
+            default_value = "ws://127.0.0.1:8000/rpc"
+        )]
         endpoint: Option<String>,
-        /// The SurrealDB namespace to use
-        #[arg(long, env = "SURREALDB_NS")]
+        /// The SurrealDB namespace to use.
+        ///
+        /// Defaults to `hebb` (the live memory namespace) so inspection targets
+        /// real data; override with `SURREALDB_NS`.
+        #[arg(long, env = "SURREALDB_NS", default_value = "hebb")]
         ns: Option<String>,
-        /// The SurrealDB database to use
-        #[arg(long, env = "SURREALDB_DB")]
+        /// The SurrealDB database to use.
+        ///
+        /// Defaults to `memory` to match the hebb namespace layout; override
+        /// with `SURREALDB_DB`.
+        #[arg(long, env = "SURREALDB_DB", default_value = "memory")]
         db: Option<String>,
-        /// The SurrealDB username to use
-        #[arg(short, long, env = "SURREALDB_USER")]
+        /// The SurrealDB username to use.
+        ///
+        /// Defaults to `root` to match the local consolidated instance; override
+        /// with `SURREALDB_USER`.
+        #[arg(short, long, env = "SURREALDB_USER", default_value = "root")]
         user: Option<String>,
-        /// The SurrealDB password to use
-        #[arg(short, long, env = "SURREALDB_PASS")]
+        /// The SurrealDB password to use.
+        ///
+        /// Defaults to `root` to match the local consolidated instance; override
+        /// with `SURREALDB_PASS`.
+        #[arg(short, long, env = "SURREALDB_PASS", default_value = "root")]
         pass: Option<String>,
         /// The MCP server bind address (host:port)
         #[arg(long, env = "SURREAL_MCP_BIND_ADDRESS", group = "server")]

@@ -14,7 +14,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
-use surrealdb::{Surreal, Value, engine::any::Any};
+use surrealdb::types::{SurrealValue, Value};
+use surrealdb::{Surreal, engine::any::Any};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, trace, warn};
 
@@ -28,22 +29,22 @@ use crate::utils::{convert_json_to_surreal, parse_target, parse_targets};
 // Global metrics
 static QUERY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Deserialize)]
+#[derive(SurrealValue)]
 struct ListNamespaces {
     namespaces: Vec<Namespace>,
 }
 
-#[derive(Deserialize)]
+#[derive(SurrealValue)]
 struct Namespace {
     name: String,
 }
 
-#[derive(Deserialize)]
+#[derive(SurrealValue)]
 struct ListDatabases {
     databases: Vec<Database>,
 }
 
-#[derive(Deserialize)]
+#[derive(SurrealValue)]
 struct Database {
     name: String,
 }

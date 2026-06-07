@@ -3,7 +3,8 @@ use metrics::{counter, histogram};
 use rmcp::model::Content;
 use std::time::Instant;
 use std::{collections::HashMap, time::Duration};
-use surrealdb::{Surreal, Value, engine::any::Any};
+use surrealdb::types::Value;
+use surrealdb::{Surreal, engine::any::Any};
 use tracing::{debug, error, info};
 
 /// Response from executing a SurrealDB query
@@ -19,7 +20,7 @@ pub struct Response {
     /// Error message if the query failed
     pub error: Option<String>,
     /// The result of the query as a formatted string
-    pub result: Option<surrealdb::Response>,
+    pub result: Option<surrealdb::IndexedResults>,
     /// Whether this error requires reconnection (e.g., token expired)
     pub requires_reconnect: bool,
 }

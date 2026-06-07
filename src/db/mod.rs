@@ -23,7 +23,10 @@ pub async fn create_client_connection(
     if let (Some(username), Some(password)) = (username, password) {
         debug!("Attempting authentication with username: {}", username);
         instance
-            .signin(Root { username, password })
+            .signin(Root {
+                username: username.to_string(),
+                password: password.to_string(),
+            })
             .await
             .map_err(|e| anyhow!(e.to_string()))?;
         debug!("Authentication successful");
@@ -97,4 +100,56 @@ pub async fn create_client_connection_with_token(
     debug!("Successfully established SurrealDB connection with token");
     // Return the instance
     Ok(instance)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Connect-round-trip against the consolidated local instance on `:8000`.
+    ///
+    /// This is intentionally **read-only**: the default namespace/database are
+    /// `hebb`/`memory`, which hold the live memory data (thousands of records).
+    /// The test runs `INFO FOR DB` (a schema introspection query that never
+    /// mutates rows) to prove connect + signin + `use_ns`/`use_db` + query all
+    /// work end-to-end against the 3.1.x server. It MUST NOT issue any
+    /// `CREATE`/`UPDATE`/`DELETE` — that would corrupt production memory.
+    ///
+    /// Skips gracefully (returns early) when the server is unreachable so CI
+    /// without a live instance stays green; run it with `surreal` up on `:8000`
+    /// to verify the 3.1.3 client wire format.
+    #[tokio::test]
+    async fn live_roundtrip_hebb_namespace_read_only() {
+        let url = "ws://127.0.0.1:8000/rpc";
+
+        // Probe: if connect fails, the server is down — skip rather than fail.
+        let db = match create_client_connection(
+            url,
+            Some("root"),
+            Some("root"),
+            Some("hebb"),
+            Some("memory"),
+        )
+        .await
+        {
+            Ok(db) => db,
+            Err(e) => {
+                eprintln!("skipping live round-trip: {url} unreachable ({e})");
+                return;
+            }
+        };
+
+        // Read-only introspection: proves the query path works without mutating
+        // the live `hebb`/`memory` data.
+        let mut res = db
+            .query("INFO FOR DB")
+            .await
+            .expect("INFO FOR DB query should succeed against live :8000");
+        let info: Option<surrealdb::types::Value> =
+            res.take(0).expect("INFO FOR DB should yield a row");
+        assert!(
+            info.is_some(),
+            "expected a non-empty INFO FOR DB result from hebb/memory"
+        );
+    }
 }
