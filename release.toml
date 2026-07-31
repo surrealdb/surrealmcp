@@ -1,8 +1,0 @@
-pre-release-commit-message = "Release {{version}}"
-shared-version = true
-sign-commit = false
-tag-message = ""
-tag-prefix = ""
-publish = false
-push = false
-tag = true
